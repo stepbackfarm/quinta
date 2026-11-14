@@ -235,6 +235,25 @@ button.dur{cursor:pointer;font:inherit;color:inherit}
 .tempo input[type=range]{width:200px;accent-color:var(--accent)}
 .check{display:inline-flex;align-items:center;gap:8px;min-height:44px}
 .check input{width:24px;height:24px;accent-color:var(--accent)}
+.controls .pbar{display:none}
+.controls.compact{flex-direction:row;flex-wrap:wrap;align-items:center;gap:6px 12px;padding:8px 12px;touch-action:pan-x;user-select:none;-webkit-user-select:none}
+.controls.compact .pbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;flex:1 1 200px;min-width:0}
+.controls.compact .tempo,.controls.compact #playHint,.controls.compact #stepRow,.controls.compact #micRow{display:none!important}
+.controls.compact #playFb{flex:1 1 100%;order:3;margin:0}
+.controls.compact #playFb:empty{display:none}
+.phandle{width:48px;height:48px;flex:none;border-radius:50%;border:2px solid var(--line);background:var(--paper);display:grid;place-items:center;color:var(--ink)}
+.phandle svg{width:26px;height:26px}
+.ptitle{font-size:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1 1 7em}
+.pmetro{display:inline-flex;align-items:center;gap:8px;font-size:15px;color:var(--muted);white-space:nowrap}
+.pmetro .mdots{display:flex;gap:5px}
+.pmetro .mdots i{width:12px;height:12px;border-radius:50%;background:var(--line);display:block}
+.pmetro .mdots i.acc{width:15px;height:15px}
+.pmetro .mdots i.lit{background:var(--accent)}
+.pmetro strong{color:var(--ink)}
+#playerStack.compact .player-head{display:none}
+#playerStack.busy #playerScore{padding-bottom:65vh}
+body.player-busy .metro{display:none}
+body.player-busy .view{padding-bottom:48px}
 .countin{position:fixed;inset:0;display:grid;place-items:center;pointer-events:none;z-index:20}
 .countin span{font-size:160px;font-weight:700;color:var(--accent);background:var(--card);border-radius:50%;width:240px;height:240px;display:grid;place-items:center;border:4px solid var(--accent)}
 .countin[hidden]{display:none}
@@ -1038,8 +1057,7 @@ const Metro={
   },
 };
 function flashBeat(b){
-  const d=document.querySelectorAll('#mdots i')[b]; if(!d) return;
-  d.classList.add('lit'); setTimeout(()=>d.classList.remove('lit'),110);
+  for(const d of [document.querySelectorAll('#mdots i')[b],document.querySelectorAll('#pdots i')[b]]){ if(!d) continue; d.classList.add('lit'); setTimeout(()=>d.classList.remove('lit'),110); }
 }
 function syncMetro(){
   const btn=$('#metroBtn'), bar=$('#metro'), per=S.settings.metroBeats;
@@ -1048,7 +1066,9 @@ function syncMetro(){
   bar.hidden=!Metro.on; document.body.classList.toggle('metro-open',Metro.on);
   $('#metroBpm').textContent=S.settings.metroBpm;
   const dots=$('#mdots');
-  if(dots.childElementCount!==per) dots.innerHTML=Array.from({length:per},(_,k)=>`<i${k===0&&per>1?' class="acc"':''}></i>`).join('');
+  const dotsHTML=Array.from({length:per},(_,k)=>`<i${k===0&&per>1?' class="acc"':''}></i>`).join('');
+  if(dots.childElementCount!==per) dots.innerHTML=dotsHTML;
+  const pd=$('#pdots'); if(pd){ if(pd.childElementCount!==per) pd.innerHTML=dotsHTML; $('#pbpm').textContent=S.settings.metroBpm; $('#pmetro').hidden=!Metro.on||Metro.held; }
   document.querySelectorAll('[data-act="metro-beats"]').forEach(b=>b.setAttribute('aria-pressed',+b.dataset.v===per));
   const rb=$('#recBpm'); if(rb) rb.textContent=S.settings.metroBpm;
   $('#metroNote').hidden=!Metro.held;
@@ -1410,18 +1430,24 @@ function openSong(song){
 }
 function renderPlayer(){
   const v=$('#view-songs'); const p=S.player, s=p.song;
-  v.innerHTML=`<div class="stack">
+  v.innerHTML=`<div class="stack" id="playerStack">
     <div class="player-head">
       <button class="btn ghost" data-act="back-songs">‹ All songs</button>
       <h1>${esc(s.title)}</h1>
       <span class="hint">${esc(s.origin||'My song')} · ${s.meter[0]}/${s.meter[1]} time</span>
     </div>
-    <div class="panel controls">
+    <div class="panel controls" id="controls">
+      <div class="pbar" id="pbar">
+        <button class="phandle" data-act="panel-show" aria-label="Show all the controls" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
+        <strong class="ptitle">${esc(s.title)}</strong>
+        <span class="pmetro" id="pmetro" hidden><span class="mdots" id="pdots" aria-hidden="true"></span><span><strong id="pbpm"></strong> a minute</span></span>
+      </div>
       <div class="row">
         <button class="btn primary" data-act="listen" id="bListen">▶ Listen</button>
         <button class="btn" data-act="along" id="bAlong">Play along</button>
         <button class="btn" data-act="step" id="bStep">One note at a time</button>
         <button class="btn" data-act="stop" id="bStop" hidden>■ Stop</button>
+        <button class="btn ghost" data-act="panel-hide" id="bHide" hidden>Hide controls</button>
       </div>
       <div class="row" id="micRow">
         <button class="btn" data-act="follow" id="bFollow"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/></svg> Follow me</button>
@@ -1455,7 +1481,25 @@ function renderPlayer(){
     if(e.target.checked) toast('Follow me will play the metronome at the song\'s speed and tell you which notes came early or late.');
   });
   $('#guide').addEventListener('change',e=>{ p.guide=e.target.checked; });
-  syncPlayerButtons();
+  // Pull the slim bar down to bring back all the controls while a song plays.
+  const ctl=$('#controls');
+  ctl.addEventListener('pointerdown',e=>{ if(ctl.classList.contains('compact')) pullY=e.clientY; });
+  syncPlayerButtons(); syncMetro();
+}
+let pullY=null;
+document.addEventListener('pointermove',e=>{ if(pullY!=null && e.clientY-pullY>36){ pullY=null; showPanel(true); } });
+['pointerup','pointercancel'].forEach(t=>document.addEventListener(t,()=>{ pullY=null; }));
+function showPanel(on){ S.player.showPanel=on; syncPlayerButtons(); if(on) $('#view-songs').scrollTo({top:0,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'}); }
+// Keep the line being played near the top, just under the controls, so the next lines are in view.
+let lastSys=null;
+function keepLineInView(g){
+  const svg=g.ownerSVGElement, view=$('#view-songs'); if(!svg||!view||svg===lastSys) return;
+  lastSys=svg;
+  const bar=$('#controls'), vt=view.getBoundingClientRect().top;
+  // a stuck sticky bar sits at the view's top padding plus its own top offset
+  const under=bar?parseFloat(getComputedStyle(view).paddingTop)+(parseFloat(getComputedStyle(bar).top)||0)+bar.offsetHeight:0;
+  const top=view.scrollTop+svg.getBoundingClientRect().top-vt-under-10;
+  view.scrollTo({top:Math.max(0,top),behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
 }
 function drawPlayerScore(){
   const el=$('#playerScore'); if(!el) return;
@@ -1470,7 +1514,16 @@ function syncPlayerButtons(){
   const m=S.player.mode, playing=m==='listen'||m==='along'||m==='scored';
   const b=id=>$(id);
   if(!b('#bStop')) return;
-  const busy=playing||m==='follow'||m==='scored';
+  const busy=playing||m==='follow'||m==='scored', p=S.player;
+  if(busy && !p.wasBusy){ p.showPanel=false; lastSys=null; }   // a song just started: roll the controls up
+  p.wasBusy=busy;
+  const compact=busy && !p.showPanel;
+  b('#controls').classList.toggle('compact',compact);
+  b('#playerStack').classList.toggle('compact',compact);
+  b('#playerStack').classList.toggle('busy',busy);
+  document.body.classList.toggle('player-busy',busy && S.view==='songs');
+  b('#bHide').hidden=!(busy && p.showPanel);
+  document.querySelector('[data-act="panel-show"]')?.setAttribute('aria-expanded',String(!compact));
   b('#bStop').hidden=!busy;
   b('#bListen').hidden=busy; b('#bAlong').hidden=busy; b('#bStep').hidden=busy;
   b('#micRow').hidden=busy;
@@ -1482,7 +1535,7 @@ function setCursor(i,scroll=true){
   const el=$('#playerScore'); if(!el) return;
   el.querySelectorAll('.nt.on').forEach(g=>g.classList.remove('on'));
   const g=el.querySelector(`.nt[data-i="${i}"]`);
-  if(g){ g.classList.add('on'); if(scroll){ const svg=g.ownerSVGElement; svg && svg.scrollIntoView({block:'nearest',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'}); } }
+  if(g){ g.classList.add('on'); if(scroll) keepLineInView(g); }
   S.player.idx=i;
   const n=S.player.song.notes[i];
   if(n) { if(n.m==null) showNote(null,{rest:true}); else showNote(n.m); }
@@ -2768,7 +2821,7 @@ function startFollow(notes,el,fbEl,onDone,opts={}){
   const mark=i=>{
     el.querySelectorAll('.nt.on').forEach(g=>g.classList.remove('on'));
     const g=el.querySelector(`.nt[data-i="${i}"]`);
-    if(g){ g.classList.add('on'); const svg=g.ownerSVGElement; svg&&svg.scrollIntoView({block:'nearest',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'}); }
+    if(g){ g.classList.add('on'); if(el.id==='playerScore') keepLineInView(g); else { const svg=g.ownerSVGElement; svg&&svg.scrollIntoView({block:'nearest',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'}); } }
     showNote(notes[i].m);
   };
   const core=makeFollow(notes,{
@@ -2953,7 +3006,7 @@ function yourTurn(id){
 const VIEWS=['flute','songs','make','learn'];
 function go(view){
   if(!VIEWS.includes(view)) view='flute';
-  if(S.view!==view){ stopRun(true); stopFollow(); SC=null; if(REC) finishRecording(); }
+  if(S.view!==view){ stopRun(true); stopFollow(); SC=null; if(REC) finishRecording(); document.body.classList.remove('player-busy'); }
   if(S.view==='learn' && view!=='learn' && S.game){ S.game=null; }
   S.view=view;
   VIEWS.forEach(v=>{ $('#view-'+v).hidden = v!==view; $('#tab-'+v).setAttribute('aria-selected',v===view); });
@@ -2996,6 +3049,8 @@ document.addEventListener('click',e=>{
     case 'back-songs': stopFollow(); stopRun(true); S.player.song=null; S.player.mode=null; renderSongs(); $('#view-songs').scrollTop=0; break;
     case 'listen': stopFollow(); startPlay('listen'); break;
     case 'along': stopFollow(); startPlay('along'); break;
+    case 'panel-show': showPanel(true); break;
+    case 'panel-hide': showPanel(false); break;
     case 'stop': stopRun(true); stopFollow(); SC=null; S.player.mode=null; syncPlayerButtons(); { const fb=$('#playFb'); if(fb){ fb.textContent=''; fb.className='feedback'; } } break;
     case 'follow': startFollowSong(); break;
     case 'scored': startScored(); break;
