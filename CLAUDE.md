@@ -1,6 +1,6 @@
 # Quinta Flute Practice
 
-An iPad app that teaches a child to play the Choroi Quinta pentatonic flute and to read music. It has a fingering chart, a song library with finger diagrams under every note, a converter that turns sheet music into finger patterns, short music-theory lessons, three practice games, a metronome, and microphone listening that checks the notes he plays (and, optionally, his timing).
+An iPad app that teaches a child to play the Choroi Quinta pentatonic flute and to read music. It has a fingering chart, a song library with finger diagrams under every note, a converter that turns sheet music into finger patterns, a recorder that writes down tunes he plays, a music-theory course (units of short lessons, each with a graded quiz, plus stars, streaks and a grown-ups records page), three practice games, a metronome, and microphone listening that checks the notes he plays (and, optionally, his timing).
 
 The user is David, a parent building this for his son. The son is the end user, so everything on screen has to work for a child: big touch targets, plain words, no reading walls.
 
@@ -9,6 +9,9 @@ The user is David, a parent building this for his son. The son is the end user, 
 - `index.html`: the whole app (HTML, CSS and JS in one file, about 2,070 lines). There is no build step and no dependencies apart from two Google Fonts.
 - `icon.png`: the 180×180 Home Screen icon.
 - `tests/timing.test.js`: Node tests for the Follow me timing grade.
+- `tests/record.test.js`: Node tests for turning a recording into notes.
+- `tests/rhythm.test.js`: Node tests for rhythm tapping grades, and a check that every tap rhythm fills whole bars.
+- `tests/course.e2e.js`, `tests/rhythm.e2e.js`: Playwright tests of the Learn course and the rhythm lessons (need a local server; see each file's header).
 - `CLAUDE.md`: this file.
 
 Keep it a single self-contained file unless there's a strong reason to split it. It runs in two places and has to work in both (see below).
@@ -71,6 +74,8 @@ The Claude-hosted copy is republished from a claude.ai chat. After changing `ind
     - `makeFollow`: the "Follow me" logic. It records each note's onset time in `st.onsets`.
     - `beatStarts`, `timingTol`, `judgeGap`, `followTiming`: the optional Follow me timing grade.
     - `scoreTimed`: the "Play in time" scoring.
+  - Rhythm (pure parts): `rhythmItems` (strings like `1-1-r1-0.5-0.5`, `r` = rest), `parseTapArg` (`4:1-1-2@72` = beats in a bar, rhythm, speed), `gradeTaps`.
+  - Recording (pure parts): `estimateBeat`, `splitLen`, `barify`, `transcribe`. `NoteTracker`'s `on` events carry `start`, the time the pitch first appeared.
 - **Song book**:
   - `BOOK`: warm-ups, original tunes and traditional songs, all exactly on the flute.
   - `XMAS`: Christmas songs, transposed at load with `bestShift`.
@@ -89,9 +94,22 @@ The Claude-hosted copy is republished from a claude.ai chat. After changing `ind
   - CSS classes `on`, `ok`, `retry` and `miss` color them.
 - **Storage `Store`**:
   - `localStorage` keys: `quinta.settings`, `quinta.songs`, `quinta.progress`.
+  - `S.progress` is `{lessons, games, stars, items, log, days}` (`normProgress`). On connecting to `db`, `mergeProgress` combines this device's records with the account's.
   - With `db`: songs are at `data/users/<uid>/library/songs/<id>` and progress at `data/users/<uid>/progress`.
-  - Songs are packed as `[m, d, flags]`.
-- **Views**: Flute (chart), Songs (list and player), Make (photo, typed ABC, write your own, then the fit and transpose result), Learn (7 lessons and 3 games).
+  - Songs are packed as `[m, d, flags]`. A recorded song also keeps `bpm`, and `openSong()` sets the player's speed from it.
+- **Views**: Flute (chart), Songs (list and player), Make (photo, typed ABC, write your own, record, then the fit and transpose result with Save, Listen and Practice), Learn (the course, practice games and the grown-ups page).
+- **Course** (Learn tab). David's son is 10 and is starting from zero, so lessons are short, in plain words, and build in order. David and his wife aren't musicians: every lesson ends with a "For grown-ups" note.
+  - `UNITS` holds units of lessons. Each lesson has `id`, `title`, `quiz` (a spec such as `[['mc',3,[ids]],['ls',2]]`) and `grown` (the grown-ups note). `LESSONS` is the flat list. Lesson text lives in `lessonBody(id)`. Lesson ids `l1`–`l7` are the original lessons, so old progress still counts.
+  - Order: Unit 1 Meet your flute (l1, hl, l6), Unit 2 Reading notes (l3, ls, fm), Unit 3 Beat and rhythm (bt, tb Tap the beat, l4, rs Rests, l5, bb Build a bar, rh Reading rhythms, lsr Long-short rhythms), Unit 4 The sound of the Quinta (l2), Unit 5 Beyond your flute (l7).
+  - A lesson with `warm` keys shows "Warm up first": an ungraded quiz that saves nothing.
+  - Questions: `quizKeys(spec)` picks 5 question keys; `makeQ(key)` builds a question from a key. Key types: `mc:<id>` (facts in `MCQ`; the first choice is the right one), `hilo:a-b` (up or down), `tempo:bpm` (fast or slow), `ls:m` (line or space), `name:m` (read the note), `fing:m` / `fingx:m` (pick the flute, with or without the letter), `ear:m`, `beats:d`, `bar:1-1-2` (count a bar), `rest:d`, `tap:4:1-1-2@72` (tap a rhythm), `hear:<set>:<k>` (which of 3 rhythms in `HEAR_SETS`), `miss:4:2-1` (which note finishes the bar, drawn with a dashed `ghost` box), `build:4` (bar builder). Because a key names one exact question, a missed question can be asked again later. `keyLabel(key)` gives the plain-words name used on the grown-ups page.
+  - Tap questions (`renderTapQ`, `tapStart`, `tapHit`, `tapGrade`): Start plays a count-in bar, then soft clicks while the notes light up. Taps come from pointerdown on the big pad, Space or Enter, or (with the mic on) each new flute note. Expected times include `AC.outputLatency`. `gradeTaps` matches each written note to the nearest tap within half the shortest gap (40 ms at most), first removes a steady lag or lead of up to 70 ms, and counts ±`max(80 ms, min(150 ms, 30% of the shortest gap))` as on time. The answer is right with no missed notes, at most 1 extra tap, and 75% on time. Results color the notes and label them early, late or missed.
+  - Bar builder (`renderBuildQ`, `buildCheck`): add notes and rests from `BUILD_PARTS`, Undo, Hear it, Check. Right when the bar adds up exactly.
+  - Quiz modes (`startQuiz(lesson, keys, mode)`): a lesson quiz, `review` (Practice my mistakes), `tapper` (the Rhythm Tapper game: `TAPPER_KEYS`, 8 rhythms from easy to hard, best saved as `games.tapper`), or `warmup`.
+  - Grading: 5/5 = 3 stars, 4/5 = 2 stars and passes, 3/5 = 1 star. Passing opens the next lesson (`lessonOpen`; the grown-ups page can open all). `S.quiz` holds a running quiz; `S.pane` is `lesson` or `grownups`.
+  - Mistakes: `noteItem(key,right)` keeps right, wrong and current-run counts per key. A key is a weak spot once missed, until it's answered right twice in a row (`weakKeys`). "Practice my mistakes" quizzes up to 5 of them. The games feed this too (`name:`, `fingx:`, `ear:`).
+  - Records: `logActivity()` saves every quiz, review, game, Follow me, Play in time, lesson exercise and saved recording (newest 400 kept). `Activity.touch()` counts active minutes per day (any tap, or a note heard). `streak()` counts days in a row with a logged activity or at least 5 active minutes.
+  - Grown-ups page (`renderGrownups`): streak, minutes this week, lessons passed, stars, a 14-day minutes chart (one series, accent color, with a hidden table), weak spots, a lessons table, history and the open-all setting.
 - **Appearance and Keep awake**:
   - `applyAppearance()` sets `data-appearance` on `<html>`.
   - `Awake` uses the Screen Wake Lock API, falling back to a tiny silent looping MP4 (data URI).
@@ -99,6 +117,7 @@ The Claude-hosted copy is republished from a claude.ai chat. After changing `ind
   - `Mic` (getUserMedia with echo cancellation, noise suppression and auto gain all off; an AnalyserNode with fftSize 1024; one frame per animation frame).
   - `onMicFrame()` routes every frame to the "I hear" meter, the Flute tab, the active Follow session (`FS`), the scored session (`SC`) and game answers.
   - `startFollow()`, `startFollowSong()`, `startScored()`, `EXERCISES` (lessons 1, 2 and 6).
+  - Recording: `REC`, `renderRecordPanel()`, `startRecording()`, `recFeed()`, `finishRecording()`, `playNotes()`. Leaving the Make page, switching tab or turning the mic off finishes a recording rather than throwing it away.
   - `startFollow(..., {timing:{spb}})` turns on the timing grade; `markTiming()` writes "early" or "late" into each note's `.tm` label.
 - **Navigation and actions**: hash routing (`#flute`, `#songs`, `#make`, `#learn`) and one delegated click handler that switches on `data-act`.
 
@@ -122,6 +141,11 @@ The Claude-hosted copy is republished from a claude.ai chat. After changing `ind
   - Tolerance is `min(max(120 ms, 22% of a beat), half the expected gap)`.
   - The first note starts the clock and isn't graded. Notes that needed a second try (orange) aren't graded either.
   - The summary adds "Timing: X of Y on the beat, N late, M early" with a short verdict (90% or more, 70% or more, or below).
+- **Recording** (Make, Record tab):
+  - "Who is playing?": My Quinta uses the normal detector. "Another flute or a recording" sets `Mic.wide`, which listens from 370 to 2500 Hz and accepts written MIDI 53–98; then `bestShift` moves the tune onto the Quinta.
+  - With "Play with the metronome" (`settings.recMetro`, on by default) the beat comes from the metronome's speed, and `Metro.lastBeat` lines the grid up with the clicks. The metronome turns on for the recording if it was off, and off again after. Without it, `estimateBeat` takes the median gap between note starts as one beat (folded into 50–150 bpm) and refines it.
+  - The first note starts bar 1. Note starts snap to half beats after a 60 ms latency correction. A gap shorter than a beat is a breath and is added to the note before it; a beat or more becomes a rest. Long notes and notes over a bar line are split into tied notes. No sixteenths or triplets.
+  - Beats in a bar uses the metronome's `metroBeats` setting. Recordings stop after 5 minutes.
 - **`scoreTimed`:**
   - Each note is judged from frames between 20% and 92% of its time slot, shifted 70 ms for latency.
   - It's right if at least 30% of those frames have a pitch and at least half of those match.
@@ -157,7 +181,7 @@ The Claude-hosted copy is republished from a claude.ai chat. After changing `ind
 ## Gotchas
 
 - `[hidden]{display:none!important}` is needed because `.btn` sets `display`.
-- `.app` needs `grid-template-columns:minmax(0,1fr)` and `.tabs` needs `min-width:0`, or wide content stretches the page past the phone screen.
+- `.app` and `.learn` (under 900 px) need `grid-template-columns:minmax(0,1fr)`, and `.tabs` needs `min-width:0`, or wide content stretches the page past the phone screen.
 - Inline SVG uses `style="fill:var(--x)"`, not `fill="var(--x)"`.
 - On iOS:
   - Web Audio has to start from a tap.
@@ -168,7 +192,7 @@ The Claude-hosted copy is republished from a claude.ai chat. After changing `ind
 
 ## Testing
 
-Only the timing test is checked in so far. These are the checks that were used; recreate the others under `tests/` when needed.
+The timing, recording, rhythm and course tests are checked in. These are the checks that were used; recreate the others under `tests/` when needed.
 
 1. **Core logic** (`node tests/core.test.js index.html`):
    - Extract the code between the CORE markers and run it in a Node `vm`.
@@ -176,28 +200,38 @@ Only the timing test is checked in so far. These are the checks that were used; 
    - Check the ABC features: broken rhythm, tuplets, chords and bar accidentals.
    - Check that every `BOOK` song fits at shift 0 and that its bars add up (allowing for a pickup).
    - Check that Twinkle comes out with half-holes and no misses, and test `autoBars`.
-2. **Follow me timing** (`node tests/timing.test.js`): on time, small wobble, a long note, a rushed note, a second-try note, eighth-note tolerance, rests and ties.
-3. **Listening** (`node tests/listen.test.js`):
+2. **Recording** (`node tests/record.test.js`): performed tunes with timing wobble, with and without the metronome at 60–110 bpm, rests, dotted notes, a tie over the bar, 3/4, a late start, and blips.
+3. **Follow me timing** (`node tests/timing.test.js`): on time, small wobble, a long note, a rushed note, a second-try note, eighth-note tolerance, rests and ties.
+4. **Listening** (`node tests/listen.test.js`):
    - Synthesize flute-like tones (sine plus 2nd and 3rd harmonics plus noise) at 44.1 and 48 kHz, for A = 440 and 432, at 0 and ±30 cents. Every note must be detected correctly.
    - Legato notes, tongued repeats with 25–40 ms gaps, a 2 s fade that counts once, and silence.
    - A low click must be ignored.
    - Follow-me cases: a full song, a held wrong note, and a quick passing note that must not count.
    - `scoreTimed`.
-4. **End to end with a fake mic**:
+5. **End to end with a fake mic**:
    - Serve the folder on `127.0.0.1`.
    - Launch Chrome with `--use-fake-ui-for-media-stream --use-fake-device-for-media-stream --use-file-for-fake-audio-capture=<file.wav>%noloop`.
    - Drive it with Playwright: open Hot Cross Buns, press Follow me or Play in time, and read `#playFb` and the `.nt` classes. For timing, tick `#followTiming` and hold one note a beat too long; the next note's `.tm` should say "late".
+   - For recording, open Make, then Record, untick the metronome, press Record, let the WAV play out, press Stop, and compare `S.make.preview.notes` with the tune. Shift the WAV's pitch up and use "Another flute" to check that it's moved back.
    - WAVs come from a small numpy script; for Play in time, put 3.15 s of silence before the first note at 80 bpm.
-5. **Visual check:** take one Playwright screenshot at 1180×820, and check that the page is no wider than 390 px at phone width. To render the real fonts offline, route the Google Fonts requests to local copies of the TTF files.
+6. **Rhythm** (`node tests/rhythm.test.js`, and `tests/rhythm.e2e.js` in the browser): grades for on time, steady lag, wobble, missed notes, extra taps, rests, eighths and long-short rhythms. The browser test sends real pointer taps timed against the audio clock, and checks the bar builder, the other rhythm questions, warm-up, Rhythm Tapper and phone width.
+7. **Course** (`tests/course.e2e.js`): builds every possible quiz question, passes and fails quizzes, checks locks, Practice my mistakes and a game, the grown-ups page, reload, and phone width.
+8. **Visual check:** take one Playwright screenshot at 1180×820, and check that the page is no wider than 390 px at phone width. To render the real fonts offline, route the Google Fonts requests to local copies of the TTF files.
 
 ## Open items
 
 - Test the listening with the real flute in a real room, then tune the gate, onset, dip and wrong-note timings if needed. Check the timing tolerance with real playing too.
+- Try recording with the real flute, with and without the metronome. The beat guess assumes most notes are one beat long, so a tune made mostly of long notes may come out at double speed; the Speed slider and the metronome get around that.
 - Timing only checks the gap between notes, not whether notes land on the metronome's clicks. A "stay with the clicks" grade could be added later.
 - Check the F♯ and C half-hole fingerings on the real flute.
 - Ask David which fingers cover which holes, then add finger names to the instructions.
 - Host the standalone copy (GitHub Pages), set `STANDALONE_URL`, and republish the Claude copy.
 - The Claude copy and the standalone copy don't share saved songs (`db` vs `localStorage`). An export/import of songs as ABC text could bridge them.
+- Next steps for the course, agreed with David:
+  - Rhythm is done (Unit 3). Check the tap tolerance with the real iPad: touch and speaker delay differ by device.
+  - Ear training and melody: same or different, which way the tune went, and "echo me" (the app plays 3 notes, he plays them back, checked by the mic).
+  - Reading a whole song (repeat signs, ties, loud and soft marks, breath marks), song shapes (AB, ABA), question-and-answer tunes, and composing with Record and Write.
+  - Export and import of records and songs, so the Claude copy and the standalone copy can share them.
 - Possible next features:
   - A mic sensitivity setting.
   - Rhythm-only clapping games.
