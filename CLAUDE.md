@@ -11,7 +11,7 @@ The user is David, a parent building this for his son. The son is the end user, 
 - `tests/timing.test.js`: Node tests for the Follow me timing grade.
 - `tests/record.test.js`: Node tests for turning a recording into notes.
 - `tests/rhythm.test.js`: Node tests for rhythm tapping grades, and a check that every tap rhythm fills whole bars.
-- `tests/course.e2e.js`, `tests/rhythm.e2e.js`: Playwright tests of the Learn course and the rhythm lessons (need a local server; see each file's header).
+- `tests/course.e2e.js`, `tests/rhythm.e2e.js`, `tests/player.e2e.js`: Playwright tests of the Learn course, the rhythm lessons and the song player while playing (need a local server; see each file's header).
 - `CLAUDE.md`: this file.
 
 Keep it a single self-contained file unless there's a strong reason to split it. It runs in two places and has to work in both (see below).
@@ -92,6 +92,11 @@ The Claude-hosted copy is republished from a claude.ai chat. After changing `ind
 - **Score drawing**: `renderScore()` lays out bars into staff lines (systems) and draws note heads, stems, flags, dots, ties, triplet "3"s and rests, with the fingering diagram and colored letter under each note.
   - Note groups are `.nt[data-i]`.
   - CSS classes `on`, `ok`, `retry` and `miss` color them.
+- **Song player while playing** (Listen, Play along, Play in time, Follow me; not One note at a time):
+  - The controls panel (`#controls`) rolls up into a slim sticky bar (`.compact`): a down-arrow handle, the title, a mini metronome (`#pdots`, `#pbpm`, hidden while the song plays its own clicks), the feedback line and Stop. The player head is hidden.
+  - Pulling the slim bar down 36 px (pointer events, tracked on `document` once a drag starts on the bar), or tapping the arrow, shows all the controls again (`showPanel(true)`, which also scrolls to the top). "Hide controls" rolls them back up. Each new song start rolls them up (`S.player.wasBusy`).
+  - `keepLineInView()` scrolls each new line of music (an SVG system) to just under the stuck bar, so the lines ahead are visible. The bar's stuck position is the view's top padding plus its sticky `top` (-24 px) plus its height. `#playerStack.busy #playerScore` gets 65vh of bottom padding so the last line can reach the top.
+  - `body.player-busy` hides the floating metronome bar so it never covers the music.
 - **Storage `Store`**:
   - `localStorage` keys: `quinta.settings`, `quinta.songs`, `quinta.progress`.
   - `S.progress` is `{lessons, games, stars, items, log, days}` (`normProgress`). On connecting to `db`, `mergeProgress` combines this device's records with the account's.
@@ -192,7 +197,7 @@ The Claude-hosted copy is republished from a claude.ai chat. After changing `ind
 
 ## Testing
 
-The timing, recording, rhythm and course tests are checked in. These are the checks that were used; recreate the others under `tests/` when needed.
+The timing, recording, rhythm, course and player tests are checked in. These are the checks that were used; recreate the others under `tests/` when needed.
 
 1. **Core logic** (`node tests/core.test.js index.html`):
    - Extract the code between the CORE markers and run it in a Node `vm`.
@@ -215,8 +220,9 @@ The timing, recording, rhythm and course tests are checked in. These are the che
    - For recording, open Make, then Record, untick the metronome, press Record, let the WAV play out, press Stop, and compare `S.make.preview.notes` with the tune. Shift the WAV's pitch up and use "Another flute" to check that it's moved back.
    - WAVs come from a small numpy script; for Play in time, put 3.15 s of silence before the first note at 80 bpm.
 6. **Rhythm** (`node tests/rhythm.test.js`, and `tests/rhythm.e2e.js` in the browser): grades for on time, steady lag, wobble, missed notes, extra taps, rests, eighths and long-short rhythms. The browser test sends real pointer taps timed against the audio clock, and checks the bar builder, the other rhythm questions, warm-up, Rhythm Tapper and phone width.
-7. **Course** (`tests/course.e2e.js`): builds every possible quiz question, passes and fails quizzes, checks locks, Practice my mistakes and a game, the grown-ups page, reload, and phone width.
-8. **Visual check:** take one Playwright screenshot at 1180×820, and check that the page is no wider than 390 px at phone width. To render the real fonts offline, route the Google Fonts requests to local copies of the TTF files.
+7. **Song player** (`tests/player.e2e.js`): during Play along and Listen, every new line lands 10 px under the slim bar with the next line fully visible (iPad and phone), the floating metronome is hidden, and pull-down, the arrow and Hide controls work.
+8. **Course** (`tests/course.e2e.js`): builds every possible quiz question, passes and fails quizzes, checks locks, Practice my mistakes and a game, the grown-ups page, reload, and phone width.
+9. **Visual check:** take one Playwright screenshot at 1180×820, and check that the page is no wider than 390 px at phone width. To render the real fonts offline, route the Google Fonts requests to local copies of the TTF files.
 
 ## Open items
 
