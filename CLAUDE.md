@@ -1,6 +1,6 @@
 # Quinta Flute Practice
 
-An iPad app that teaches a child to play the Choroi Quinta pentatonic flute and to read music. It has a fingering chart, a song library with finger diagrams under every note, a converter that turns sheet music into finger patterns, short music-theory lessons, three practice games, and microphone listening that checks the notes he plays.
+An iPad app that teaches a child to play the Choroi Quinta pentatonic flute and to read music. It has a fingering chart, a song library with finger diagrams under every note, a converter that turns sheet music into finger patterns, short music-theory lessons, three practice games, a metronome, and microphone listening that checks the notes he plays (and, optionally, his timing).
 
 The user is David, a parent building this for his son. The son is the end user, so everything on screen has to work for a child: big touch targets, plain words, no reading walls.
 
@@ -8,6 +8,7 @@ The user is David, a parent building this for his son. The son is the end user, 
 
 - `index.html`: the whole app (HTML, CSS and JS in one file, about 2,070 lines). There is no build step and no dependencies apart from two Google Fonts.
 - `icon.png`: the 180×180 Home Screen icon.
+- `tests/timing.test.js`: Node tests for the Follow me timing grade.
 - `CLAUDE.md`: this file.
 
 Keep it a single self-contained file unless there's a strong reason to split it. It runs in two places and has to work in both (see below).
@@ -67,7 +68,8 @@ The Claude-hosted copy is republished from a claude.ai chat. After changing `ind
     - `yinPitch`: YIN pitch detection limited to 480–1500 Hz.
     - `writtenFromFreq`: subtracts 12 because the flute sounds an octave up.
     - `NoteTracker`: turns frames into note events.
-    - `makeFollow`: the "Follow me" logic.
+    - `makeFollow`: the "Follow me" logic. It records each note's onset time in `st.onsets`.
+    - `beatStarts`, `timingTol`, `judgeGap`, `followTiming`: the optional Follow me timing grade.
     - `scoreTimed`: the "Play in time" scoring.
 - **Song book**:
   - `BOOK`: warm-ups, original tunes and traditional songs, all exactly on the flute.
@@ -79,7 +81,8 @@ The Claude-hosted copy is republished from a claude.ai chat. After changing `ind
   - `audio()` creates the AudioContext on the first tap (iOS rule).
   - `tone()` is the synth flute, using sine harmonics, vibrato and a breath "chiff".
   - `click()` is the metronome.
-  - `runEvents()` schedules a list of events and returns the start time `t0`; `stopRun()` stops it.
+  - `runEvents()` schedules a list of events and returns the start time `t0`; `stopRun()` stops it. A run that has clicks rests the metronome (`Metro.hold`) until it ends.
+  - `Metro`: the metronome behind the top-bar button. It schedules clicks about 120 ms ahead on the audio clock from a 25 ms timer, keeps going across tabs, and saves `metroBpm` (40–160) and `metroBeats` in settings. `syncMetro()` draws the button and the floating `#metro` bar (beat dots, slower/faster, 2/3/4 beats, Stop). `Metro.auto` marks a metronome that timed Follow me started, so it stops when that session ends.
 - **Flute drawing**: `fluteSVG()` draws the big and mini flutes, with the thumb hole beside the body as on Choroi's chart. `drawBig()` and `showNote()` drive the left-hand flute column.
 - **Score drawing**: `renderScore()` lays out bars into staff lines (systems) and draws note heads, stems, flags, dots, ties, triplet "3"s and rests, with the fingering diagram and colored letter under each note.
   - Note groups are `.nt[data-i]`.
@@ -96,6 +99,7 @@ The Claude-hosted copy is republished from a claude.ai chat. After changing `ind
   - `Mic` (getUserMedia with echo cancellation, noise suppression and auto gain all off; an AnalyserNode with fftSize 1024; one frame per animation frame).
   - `onMicFrame()` routes every frame to the "I hear" meter, the Flute tab, the active Follow session (`FS`), the scored session (`SC`) and game answers.
   - `startFollow()`, `startFollowSong()`, `startScored()`, `EXERCISES` (lessons 1, 2 and 6).
+  - `startFollow(..., {timing:{spb}})` turns on the timing grade; `markTiming()` writes "early" or "late" into each note's `.tm` label.
 - **Navigation and actions**: hash routing (`#flute`, `#songs`, `#make`, `#learn`) and one delegated click handler that switches on `data-act`.
 
 ## Listening details (tuned against synthetic tones, not yet a real flute)
@@ -112,6 +116,12 @@ The Claude-hosted copy is republished from a claude.ai chat. After changing `ind
 - **`makeFollow`:**
   - The right note advances at once.
   - A wrong note only counts if it starts after the current note was asked for and is held for 260 ms. This keeps finger changes and the tail of the previous note from counting.
+- **Follow me timing** (the "Check my timing too" box in the song player, saved as `settings.followTiming`; songs only, not the lesson exercises):
+  - Starting Follow me sets the metronome to the song's speed and beats per bar, and turns it on if it was off.
+  - Each note is judged by the time since the previous note's onset, compared with the beats between them at the song's speed (rests and ties count). So one hesitation makes only that one note late, and the constant onset delay of the detector cancels out.
+  - Tolerance is `min(max(120 ms, 22% of a beat), half the expected gap)`.
+  - The first note starts the clock and isn't graded. Notes that needed a second try (orange) aren't graded either.
+  - The summary adds "Timing: X of Y on the beat, N late, M early" with a short verdict (90% or more, 70% or more, or below).
 - **`scoreTimed`:**
   - Each note is judged from frames between 20% and 92% of its time slot, shifted 70 ms for latency.
   - It's right if at least 30% of those frames have a pitch and at least half of those match.
@@ -147,6 +157,7 @@ The Claude-hosted copy is republished from a claude.ai chat. After changing `ind
 ## Gotchas
 
 - `[hidden]{display:none!important}` is needed because `.btn` sets `display`.
+- `.app` needs `grid-template-columns:minmax(0,1fr)` and `.tabs` needs `min-width:0`, or wide content stretches the page past the phone screen.
 - Inline SVG uses `style="fill:var(--x)"`, not `fill="var(--x)"`.
 - On iOS:
   - Web Audio has to start from a tap.
@@ -157,7 +168,7 @@ The Claude-hosted copy is republished from a claude.ai chat. After changing `ind
 
 ## Testing
 
-There are no test files in this repo yet. These are the checks that were used; recreate them under `tests/` when needed.
+Only the timing test is checked in so far. These are the checks that were used; recreate the others under `tests/` when needed.
 
 1. **Core logic** (`node tests/core.test.js index.html`):
    - Extract the code between the CORE markers and run it in a Node `vm`.
@@ -165,22 +176,24 @@ There are no test files in this repo yet. These are the checks that were used; r
    - Check the ABC features: broken rhythm, tuplets, chords and bar accidentals.
    - Check that every `BOOK` song fits at shift 0 and that its bars add up (allowing for a pickup).
    - Check that Twinkle comes out with half-holes and no misses, and test `autoBars`.
-2. **Listening** (`node tests/listen.test.js`):
+2. **Follow me timing** (`node tests/timing.test.js`): on time, small wobble, a long note, a rushed note, a second-try note, eighth-note tolerance, rests and ties.
+3. **Listening** (`node tests/listen.test.js`):
    - Synthesize flute-like tones (sine plus 2nd and 3rd harmonics plus noise) at 44.1 and 48 kHz, for A = 440 and 432, at 0 and ±30 cents. Every note must be detected correctly.
    - Legato notes, tongued repeats with 25–40 ms gaps, a 2 s fade that counts once, and silence.
    - A low click must be ignored.
    - Follow-me cases: a full song, a held wrong note, and a quick passing note that must not count.
    - `scoreTimed`.
-3. **End to end with a fake mic**:
+4. **End to end with a fake mic**:
    - Serve the folder on `127.0.0.1`.
    - Launch Chrome with `--use-fake-ui-for-media-stream --use-fake-device-for-media-stream --use-file-for-fake-audio-capture=<file.wav>%noloop`.
-   - Drive it with Playwright: open Hot Cross Buns, press Follow me or Play in time, and read `#playFb` and the `.nt` classes.
+   - Drive it with Playwright: open Hot Cross Buns, press Follow me or Play in time, and read `#playFb` and the `.nt` classes. For timing, tick `#followTiming` and hold one note a beat too long; the next note's `.tm` should say "late".
    - WAVs come from a small numpy script; for Play in time, put 3.15 s of silence before the first note at 80 bpm.
-4. **Visual check:** take one Playwright screenshot at 1180×820. To render the real fonts offline, route the Google Fonts requests to local copies of the TTF files.
+5. **Visual check:** take one Playwright screenshot at 1180×820, and check that the page is no wider than 390 px at phone width. To render the real fonts offline, route the Google Fonts requests to local copies of the TTF files.
 
 ## Open items
 
-- Test the listening with the real flute in a real room, then tune the gate, onset, dip and wrong-note timings if needed.
+- Test the listening with the real flute in a real room, then tune the gate, onset, dip and wrong-note timings if needed. Check the timing tolerance with real playing too.
+- Timing only checks the gap between notes, not whether notes land on the metronome's clicks. A "stay with the clicks" grade could be added later.
 - Check the F♯ and C half-hole fingerings on the real flute.
 - Ask David which fingers cover which holes, then add finger names to the instructions.
 - Host the standalone copy (GitHub Pages), set `STANDALONE_URL`, and republish the Claude copy.
