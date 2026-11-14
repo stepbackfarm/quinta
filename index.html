@@ -100,6 +100,60 @@ body.metro-open .view{padding-bottom:140px}
 .recnotes{display:flex;flex-wrap:wrap;gap:4px 10px;font-weight:700;font-size:26px;min-height:40px;align-items:center}
 .rectime{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}
 .recdot{width:14px;height:14px;border-radius:50%;background:var(--carmine);display:inline-block}
+/* Course: badges, stars, locks, quiz, grown-ups */
+.badges{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:6px}
+.badge{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;background:var(--card);border:1px solid var(--line);font-size:15px}
+.badge svg{width:20px;height:20px;fill:var(--line)}
+.badge .bstar{fill:var(--lemon)}
+.badge.hot svg{fill:var(--carmine)}
+.badge strong{font-size:18px}
+.stars{display:inline-flex;gap:1px;vertical-align:-2px;margin-left:6px}
+.stars svg{width:15px;height:15px}
+.stars path{fill:var(--line)}
+.stars path.on{fill:var(--lemon);stroke:color-mix(in srgb,var(--lemon) 70%,var(--ink));stroke-width:.8}
+.stars.big{gap:10px;margin:0}
+.stars.big svg{width:64px;height:64px}
+.lbtn .lt{display:flex;flex-direction:column;align-items:flex-start;line-height:1.25}
+.lbtn .lt .stars{margin:3px 0 0}
+.lbtn .lt small{font-weight:400}
+.lbtn.locked{color:var(--muted)}
+.lbtn .num svg{width:16px;height:16px}
+.biglock{width:30px;height:30px;vertical-align:-4px}
+.quizcall{background:var(--paper)}
+.grown{border-top:1px solid var(--line);padding-top:10px;color:var(--muted)}
+.grown summary{cursor:pointer;font-weight:700;color:var(--ink);min-height:44px;display:flex;align-items:center}
+.grown p{margin-top:6px}
+.qdots{display:flex;gap:6px}
+.qdots i{width:16px;height:16px;border-radius:50%;background:var(--line);display:block}
+.qdots i.r{background:var(--good)}
+.qdots i.w{background:var(--carmine)}
+.qdots i.c{box-shadow:0 0 0 3px var(--accent)}
+.qprompt{font-size:22px;font-weight:700}
+.ans.text{font-size:20px;min-width:110px;padding:10px 20px;text-align:center;line-height:1.25}
+.answers.flutes{gap:16px}
+.ans.flute{padding:10px 18px}
+.ans.flute svg{height:170px;width:auto}
+.quizend{display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;padding:10px 0}
+.missed{margin:0;padding-left:22px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px}
+.tile{border:1px solid var(--line);border-radius:14px;padding:12px 14px;background:var(--paper);font-size:15px;color:var(--muted)}
+.tile b{display:block;font-size:28px;color:var(--ink);line-height:1.2}
+.mchart{width:100%;max-width:640px;height:auto}
+.mchart .cbar{fill:var(--accent)}
+.mchart .cbase{stroke:var(--line);stroke-width:1}
+.mchart .caxis{font-size:13px;fill:var(--muted)}
+.mchart .cval{font-size:13px;font-weight:700;fill:var(--ink)}
+.weak{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px}
+.weak li{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 12px;border-bottom:1px solid var(--line);padding:6px 0}
+.tablewrap{overflow-x:auto}
+.gtable{border-collapse:collapse;width:100%;font-size:16px}
+.gtable th,.gtable td{text-align:left;padding:7px 10px 7px 0;border-bottom:1px solid var(--line);white-space:nowrap}
+.gtable th{color:var(--muted);font-weight:700}
+.gtable .stars{margin:0}
+.hist{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:4px;font-size:16px}
+.hist .hday{font-weight:700;margin-top:10px;color:var(--muted)}
+.hist li:not(.hday){display:grid;grid-template-columns:80px 1fr;gap:10px}
+.htime{color:var(--muted)}
 .hear{width:100%;padding:8px 6px 2px;border-top:1px solid var(--line);text-align:center;font-size:14px;line-height:1.3}
 .hear strong{font-size:20px}
 .meter{position:relative;height:10px;border-radius:5px;background:var(--line);margin:6px 8px 4px}
@@ -798,15 +852,17 @@ C C G G | A A G2 | F F E E | D D C2 |]`;
 // ---------- State ----------
 const S = {
   view:'flute',
-  settings:{tuning:440, letters:true, colors:true, appearance:'auto', awake:true, metroBpm:80, metroBeats:4, followTiming:false, recMetro:true},
+  settings:{tuning:440, letters:true, colors:true, appearance:'auto', awake:true, metroBpm:80, metroBeats:4, followTiming:false, recMetro:true, openAll:false},
   big:{holes:[1,1,1,0,0,0], m:69, interactive:false},
   explore:{holes:[1,1,1,0,0,0], m:69},
   mySongs:[],
-  progress:{lessons:{}, games:{}},
+  progress:{lessons:{}, games:{}, stars:{}, items:{}, log:[], days:{}},
   player:{song:null, idx:-1, mode:null, tempo:80, guide:false},
   make:{tab:'photo', base:null, shift:0, title:'', origin:'typed', photo:null, recSrc:'mine', bpm:null, recStatus:''},
   compose:{notes:[], dur:1, meter:[4,4], title:'My tune'},
   lesson:'l1',
+  pane:'lesson',
+  quiz:null,
   game:null,
   deleteArm:null,
 };
@@ -1197,7 +1253,7 @@ const Store={
     this.mode='local';
     try{ const st=JSON.parse(ls.getItem('quinta.settings')||'null'); if(st) Object.assign(S.settings,st); }catch(e){}
     try{ const ss=JSON.parse(ls.getItem('quinta.songs')||'[]'); S.mySongs=ss.map(unpackSong).filter(Boolean); }catch(e){}
-    try{ const p=JSON.parse(ls.getItem('quinta.progress')||'null'); if(p) S.progress={lessons:p.lessons||{},games:p.games||{}}; }catch(e){}
+    try{ const p=JSON.parse(ls.getItem('quinta.progress')||'null'); if(p) S.progress=normProgress(p); }catch(e){}
   },
   saveSettings(){ const ls=this.ls(); if(ls) try{ ls.setItem('quinta.settings',JSON.stringify(S.settings)); }catch(e){} },
   async connect(){
@@ -1216,7 +1272,7 @@ const Store={
       const have=new Set(songs.map(s=>s.id));
       for(const s of S.mySongs){ if(!have.has(s.id)){ songs.push(s); try{ await this.songsCol().doc(s.id).set(packSong(s)); }catch(e){} } }
       S.mySongs=songs.sort((a,b)=>a.created-b.created);
-      if(prog.exists){ const p=prog.data()||{}; S.progress={lessons:{...S.progress.lessons,...(p.lessons||{})},games:{...S.progress.games,...(p.games||{})}}; }
+      if(prog.exists){ S.progress=mergeProgress(S.progress,prog.data()||{}); this.saveProgress(); }
       if(S.view==='songs' && !S.player.song) renderSongs();
       if(S.view==='learn') renderLearn();
     }catch(e){ if(this.mode==='db') this.mode=this.ls()?'local':'memory'; this.db=null; }
@@ -1238,7 +1294,7 @@ const Store={
     const ls=this.ls(); if(ls) try{ ls.setItem('quinta.progress',JSON.stringify(S.progress)); }catch(e){}
     if(this.mode!=='db') return;
     clearTimeout(this.progT);
-    this.progT=setTimeout(()=>{ this.progDoc().set({lessons:S.progress.lessons,games:S.progress.games}).catch(()=>{}); },1500);
+    this.progT=setTimeout(()=>{ this.progDoc().set(normProgress(S.progress)).catch(()=>{}); },1500);
   },
 };
 function updateStoreNote(){
@@ -1649,20 +1705,236 @@ function renderMakeResult(){
 }
 
 // ---------- Learn view ----------
-const LESSONS=[
-  {id:'l1',title:'Seven notes, five names'},
-  {id:'l2',title:'A is home'},
-  {id:'l3',title:'Lines and spaces'},
-  {id:'l4',title:'Long and short notes'},
-  {id:'l5',title:'Beats and bars'},
-  {id:'l6',title:'One finger at a time'},
-  {id:'l7',title:'Moving a song to fit'},
+// ---------- Course: units, lessons and quizzes ----------
+// Each lesson teaches one idea, then a 5-question quiz checks it. 4 right out of 5 passes and opens the next lesson.
+const UNITS=[
+  {id:'u1',title:'Meet your flute',lessons:[
+    {id:'l1',title:'Seven notes, five names',quiz:[['mc',5,['l1-count','l1-names','l1-penta','l1-twice','l1-color']]],
+     grown:'Pentatonic means a scale of five note names. The Quinta plays D, E, G, A and B, with D and E repeated higher up. Any of these notes sound pleasant together, so there are no "wrong" notes when he makes up tunes.'},
+    {id:'hl',title:'High and low',quiz:[['hilo',4],['mc',1,['hl-holes','hl-lowest','hl-highest']]],
+     grown:'Pitch is how high or low a sound is. Covering more holes makes the flute\'s air column longer, so the note is lower. Try singing a high note and a low note together, then finding each on the flute.'},
+    {id:'l6',title:'One finger at a time',quiz:[['fing',2],['mc',3,['l6-allcov','l6-allopen','l6-up','l6-step','l6-skip']]],
+     grown:'The fingering builds up: each step up the scale opens the next hole from the bottom. A "step" moves to the next letter name, and a "skip" jumps over at least one. The Quinta has no C or F, so B to high D is a skip even though only one hole changes.'},
+  ]},
+  {id:'u2',title:'Reading notes',lessons:[
+    {id:'l3',title:'Lines and spaces',quiz:[['mc',3,['l3-lines','l3-clef','l3-g','l3-higher']],['ls',2]],
+     grown:'The staff is the five-line grid that music is written on. The treble clef sets which line is G, and every other note is counted from there. Reading music is mostly recognizing where a note sits, the way a reader recognizes letters.'},
+    {id:'ls',title:'Where each note lives',quiz:[['ls',1],['name',4]],
+     grown:'Musicians remember the treble-staff lines as E G B D F ("Every Good Boy Does Fine"). The Quinta stops at high E and has no F, so we use "Every Good Bird Dances." Point at notes in his song book and ask him to name them.'},
+    {id:'fm',title:'From the page to your fingers',quiz:[['fingx',5]],
+     grown:'This lesson joins reading and playing: see a note, know the fingers. The small flute under each note in the song book shows the holes. The Finger Match game drills the same skill.'},
+  ]},
+  {id:'u3',title:'Beat and rhythm',lessons:[
+    {id:'bt',title:'The steady beat',quiz:[['tempo',3],['mc',2,['bt-beat','bt-tempo','bt-bpm']]],
+     grown:'The beat is the steady pulse under music, and tempo is its speed in beats per minute. Tapping a foot or clapping along to any music he likes builds this sense. The metronome button at the top of the screen plays a beat on any page.'},
+    {id:'l4',title:'Long and short notes',quiz:[['beats',4],['mc',1,['l4-dot','l4-whole']]],
+     grown:'Note lengths are counted in beats: a whole note is 4, a half note 2, a quarter note 1, and an eighth note ½. A dot adds half the note\'s length again. Counting out loud ("1, 2, 3, 4") while he plays helps a lot.'},
+    {id:'l5',title:'Beats and bars',quiz:[['bar',3],['mc',2,['l5-top','l5-strong','l5-barline','l5-waltz']]],
+     grown:'A time signature like 4/4 means 4 beats in each bar, with a quarter note as one beat. Bar lines help a reader keep their place, and beat 1 of each bar gets a natural push.'},
+  ]},
+  {id:'u4',title:'The sound of the Quinta',lessons:[
+    {id:'l2',title:'A is home',quiz:[['mc',5,['l2-home','l2-mid','l2-fifth','l2-mood','l2-afing']]],
+     grown:'A fifth spans five letter names (G, A, B, C, D). Stacking fifths, G-D-A-E-B, gives exactly the Quinta\'s notes. Waldorf schools use this "mood of the fifth" music with young children because it feels open and floating, with no strong pull toward an ending.'},
+  ]},
+  {id:'u5',title:'Beyond your flute',lessons:[
+    {id:'l7',title:'Moving a song to fit',quiz:[['mc',5,['l7-trans','l7-same','l7-why','l7-half','l7-make']]],
+     grown:'Transposing moves every note by the same amount, so the tune keeps its shape. The Make page picks the move that puts the most notes on the flute. F♯ and C need a half-covered hole, which takes careful listening.'},
+  ]},
 ];
+const LESSONS=UNITS.flatMap(u=>u.lessons.map(l=>({...l,unit:u.id,unitTitle:u.title})));
 const GAMES=[
   {id:'reader',title:'Note Reader',about:'Read a note on the staff and tap its name.'},
   {id:'finger',title:'Finger Match',about:'See a note, then cover the right holes on the big flute.'},
   {id:'ear',title:'Ear Detective',about:'Listen to a note and guess which one it was.'},
 ];
+// Fact questions. The first choice listed is the right one; choices are shuffled when shown.
+const MCQ={
+  'l1-count':{q:'How many different notes can your Quinta play?',c:['7','5','10'],ex:'Seven: low D, low E, G, A, B, high D and high E.'},
+  'l1-names':{q:'How many letter names do those notes use?',c:['5','7','3'],ex:'Five: D, E, G, A and B. D and E come twice, low and high.'},
+  'l1-penta':{q:'What does "penta" mean?',c:['Five','Flute','Song'],ex:'Penta means five. Pentatonic music uses five note names.'},
+  'l1-twice':{q:'Which two notes does your flute have twice, low and high?',c:['D and E','G and A','A and B'],ex:'Your flute has a low D and a high D, and a low E and a high E.'},
+  'l1-color':{q:'Low D and high D are the same color. Why?',c:['They have the same name','They are both loud','They use the same fingers'],ex:'Notes with the same name get the same color. High D just sounds higher.'},
+  'hl-holes':{q:'When you cover more holes, does the note get higher or lower?',c:['Lower','Higher'],ex:'More holes covered makes a lower note. All of them covered is low D, the lowest note.'},
+  'hl-lowest':{q:'Which is the lowest note on your flute?',c:['Low D','A','High E'],ex:'Low D, with every hole covered.'},
+  'hl-highest':{q:'Which is the highest note on your flute?',c:['High E','Low D','B'],ex:'High E, with every hole open.'},
+  'l6-allcov':{q:'You cover the thumb hole and all five front holes. Which note is it?',c:['Low D','A','High E'],ex:'Everything covered plays low D.'},
+  'l6-allopen':{q:'Every hole is open, even the thumb hole. Which note is it?',c:['High E','Low D','G'],ex:'Everything open plays high E.'},
+  'l6-up':{q:'To play the next note up, what do you do?',c:['Lift one more finger','Cover one more hole','Blow as hard as you can'],ex:'Going up, you lift one more finger, starting from the bottom hole.'},
+  'l6-step':{q:'G to A goes to the very next letter. What is that called?',c:['A step','A skip','A rest'],ex:'Moving to the very next letter is a step.'},
+  'l6-skip':{q:'B to high D jumps over C. What is that called?',c:['A skip','A step','A bar'],ex:'Jumping over a letter is a skip.'},
+  'l3-lines':{q:'How many lines does a staff have?',c:['5','4','6'],ex:'A staff has five lines, with four spaces between them.'},
+  'l3-clef':{q:'What is the curly sign at the start of the staff called?',c:['Treble clef','Bar line','Time signature'],ex:'It is the treble clef, also called the G clef.'},
+  'l3-g':{q:'The treble clef curls around one line. Which note sits on that line?',c:['G','A','E'],ex:'G. That is why it is also called the G clef.'},
+  'l3-higher':{q:'One note sits higher on the staff than another. How does it sound?',c:['Higher','Lower','Louder'],ex:'Higher on the staff means a higher sound.'},
+  'bt-beat':{q:'What is the beat?',c:['A steady pulse, like a clock ticking','The loudest note in a song','The last note of a song'],ex:'The beat is the steady pulse under the music.'},
+  'bt-tempo':{q:'What does "tempo" mean?',c:['How fast the beat goes','How high the notes are','How loud you play'],ex:'Tempo is the speed of the beat.'},
+  'bt-bpm':{q:'Which is faster: 60 beats a minute or 120 beats a minute?',c:['120','60'],ex:'120 beats a minute is twice as fast as 60.'},
+  'l4-dot':{q:'What does a dot after a note do?',c:['Makes it half again as long','Makes it shorter','Makes it louder'],ex:'A dot adds half again. A dotted half note is 2 + 1 = 3 beats.'},
+  'l4-whole':{q:'Which note do you hold the longest?',c:['Whole note','Half note','Quarter note'],ex:'A whole note lasts 4 beats, the longest of these.'},
+  'l5-top':{q:'In a time signature, what does the top number tell you?',c:['How many beats are in each bar','How fast to play','How many notes are in the song'],ex:'The top number is the number of beats in each bar.'},
+  'l5-strong':{q:'Which beat of a bar is the strongest?',c:['Beat 1','The last beat','They are all the same'],ex:'Beat 1 is the strongest. The metronome clicks louder on it.'},
+  'l5-barline':{q:'What are bar lines for?',c:['Splitting the music into small pieces','Showing where to breathe','Showing the highest note'],ex:'Bar lines split the music into bars, so it is easier to keep your place.'},
+  'l5-waltz':{q:'A waltz is counted "1, 2, 3." How many beats are in each bar?',c:['3','2','4'],ex:'Three beats in each bar.'},
+  'l2-home':{q:'Which note is the home note for songs on the Quinta?',c:['A','G','High E'],ex:'A is home. Many songs for this flute start and end on A.'},
+  'l2-mid':{q:'G, D, A, E, B. Which note is in the middle?',c:['A','D','E'],ex:'A sits right in the middle of the chain.'},
+  'l2-fifth':{q:'Each note in G, D, A, E, B is five letters above the one before. What is that jump called?',c:['A fifth','A skip','A bar'],ex:'A jump of five letters is called a fifth.'},
+  'l2-mood':{q:'What do Waldorf teachers call this kind of music?',c:['The mood of the fifth','The minor key','The march'],ex:'They call it the mood of the fifth.'},
+  'l2-afing':{q:'How do you play A?',c:['Cover the thumb hole and the top 2 holes','Cover every hole','Open every hole'],ex:'For A, cover the thumb hole and the top two front holes.'},
+  'l7-trans':{q:'Moving every note of a song up or down by the same amount is called...',c:['Transposing','Tuning','Tonguing'],ex:'It is called transposing.'},
+  'l7-same':{q:'After a song is moved, does it still sound like the same tune?',c:['Yes, just higher or lower','No, it becomes a different song'],ex:'It is the same tune, just higher or lower.'},
+  'l7-why':{q:'Why do some songs need moving?',c:['They use notes your flute doesn\'t have','They are too long','They are too quiet'],ex:'Songs written for other instruments can use notes the Quinta doesn\'t have.'},
+  'l7-half':{q:'How can you play F♯ or C on the Quinta?',c:['Cover half of a hole','Blow very hard','Lift your thumb'],ex:'Cover half of a hole, then listen and adjust.'},
+  'l7-make':{q:'Which page moves a song to fit your flute?',c:['Make','Flute','Learn'],ex:'The Make page.'},
+};
+const DUR_NAMES={4:'whole note',3:'dotted half note',2:'half note',1:'quarter note',0.5:'eighth note'};
+const BAR_PATTERNS=['1-1','2','0.5-0.5-1','1-1-1','2-1','3','1-2','0.5-0.5-2','1-1-1-1','2-2','2-1-1','4','3-1','1-1-2','0.5-0.5-1-2'];
+const LINE_SPOT={64:'on the bottom line',67:'on the second line',71:'on the middle line',74:'on the fourth line',69:'in the space above G',76:'in the top space'};
+function noteName(m){ const f=BY_MIDI.get(m); if(!f) return noteLabel(m); const h=highLow(f); return h?h+' '+f.name:f.name; }
+function capFirst(s){ return s.charAt(0).toUpperCase()+s.slice(1); }
+function shuffle(a){ a=a.slice(); for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+// Pick question keys for a lesson's quiz. A key names one question exactly, so a missed question can come back later.
+function quizKeys(spec){
+  const keys=[];
+  const add=(pool,n)=>{ for(const k of shuffle(pool)){ if(n<=0) break; if(!keys.includes(k)){ keys.push(k); n--; } } };
+  const notes=FLUTE.map(f=>f.m);
+  for(const [type,n,opt] of spec){
+    if(type==='mc') add(opt.map(id=>'mc:'+id),n);
+    else if(type==='hilo'){ const pool=[]; for(const a of notes) for(const b of notes) if(a!==b && Math.abs(a-b)>=3) pool.push(`hilo:${a}-${b}`); add(pool,n); }
+    else if(type==='ls') add(Object.keys(LINE_SPOT).map(m=>'ls:'+m),n);
+    else if(type==='name') add(notes.map(m=>'name:'+m),n);
+    else if(type==='fing'||type==='fingx') add(notes.map(m=>type+':'+m),n);
+    else if(type==='beats') add(['4','3','2','1','0.5'].map(d=>'beats:'+d),n);
+    else if(type==='bar') add(BAR_PATTERNS.map(p=>'bar:'+p),n);
+    else if(type==='tempo') add(['56','60','66','132','144','152'].map(b=>'tempo:'+b),n);
+  }
+  return shuffle(keys);
+}
+function staffOne(m,d,w,letters){ return renderScore([{m,d:d||1,bar:true}],[4,4],w,{fing:false,letters:!!letters,time:false,tap:false}); }
+// Build one question from its key. Each choice has a value; q.answer is the right value.
+function makeQ(key,w){
+  const [type,arg]=[key.slice(0,key.indexOf(':')),key.slice(key.indexOf(':')+1)];
+  const q={key,type,choices:[],visual:'',play:null};
+  if(type==='mc'){
+    const b=MCQ[arg]; if(!b) return null;
+    q.prompt=b.q; q.answer=b.c[0]; q.explain=b.ex; q.text=true;
+    q.choices=shuffle(b.c).map(c=>({v:c,html:esc(c)}));
+  } else if(type==='hilo'){
+    const [a,b]=arg.split('-').map(Number); if(!BY_MIDI.has(a)||!BY_MIDI.has(b)) return null;
+    q.prompt='Listen to two notes. Did the tune go up or down?';
+    q.play=()=>runEvents([{t:0,m:a,dur:0.75,vol:0.32},{t:0.9,m:b,dur:0.75,vol:0.32}]); // no note names shown, that would give it away
+    q.answer=b>a?'up':'down'; q.text=true;
+    q.choices=[{v:'up',html:'↑ Up'},{v:'down',html:'↓ Down'}];
+    q.explain=`It went ${q.answer}, from ${noteName(a)} to ${noteName(b)}.`;
+  } else if(type==='ear'){
+    const m=+arg; if(!BY_MIDI.has(m)) return null;
+    q.prompt='Listen. Which note did you hear?'; q.play=()=>playNow(m,1); q.answer=String(m); q.notes=true;
+    q.choices=FLUTE.map(f=>({v:String(f.m),html:`<span style="color:${colorFor(f.m)}">${f.name}</span><small>${highLow(f)||'&nbsp;'}</small>`}));
+    q.explain=`It was ${noteName(m)}.`;
+  } else if(type==='tempo'){
+    const bpm=+arg; if(!bpm) return null;
+    q.prompt='Listen to the beat. Is it fast or slow?';
+    q.play=()=>{ const spb=60/bpm; runEvents(Array.from({length:6},(_,k)=>({t:k*spb,click:true,accent:k===0,vol:0.3}))); };
+    q.answer=bpm>100?'fast':'slow'; q.text=true;
+    q.choices=[{v:'slow',html:'Slow'},{v:'fast',html:'Fast'}];
+    q.explain=`That was ${bpm} beats a minute: ${q.answer}.`;
+  } else if(type==='ls'){
+    const m=+arg; if(!LINE_SPOT[m]) return null;
+    q.visual=staffOne(m,1,w); q.prompt='Is this note on a line or in a space?';
+    q.answer=LINE_SPOT[m].startsWith('on')?'line':'space'; q.text=true;
+    q.choices=[{v:'line',html:'On a line'},{v:'space',html:'In a space'}];
+    q.explain=`${capFirst(noteName(m))} sits ${LINE_SPOT[m]}.`;
+  } else if(type==='name'){
+    const m=+arg; if(!BY_MIDI.has(m)) return null;
+    q.visual=staffOne(m,1,w); q.prompt='Which note is this?'; q.answer=String(m); q.notes=true;
+    q.choices=FLUTE.map(f=>({v:String(f.m),html:`<span style="color:${colorFor(f.m)}">${f.name}</span><small>${highLow(f)||'&nbsp;'}</small>`}));
+    q.explain=`It is ${noteName(m)}${LINE_SPOT[m]?', '+LINE_SPOT[m]:', just under the staff'}.`;
+  } else if(type==='fing'||type==='fingx'){
+    const m=+arg, f=BY_MIDI.get(m); if(!f) return null;
+    q.visual=staffOne(m,1,w,type==='fing');
+    q.prompt= type==='fing' ? `Which flute is playing ${noteName(m)}?` : 'Which flute plays this note?';
+    const idx=FLUTE.findIndex(x=>x.m===m);
+    const near=FLUTE.filter((x,k)=>x.m!==m && Math.abs(k-idx)<=2);
+    const others=shuffle(near).slice(0,2).map(x=>x.m);
+    q.answer=String(m); q.flutes=true;
+    q.choices=shuffle([m,...others]).map(v=>({v:String(v),html:fluteSVG(BY_MIDI.get(v).holes,{labels:false})}));
+    q.explain=`${capFirst(noteName(m))}: ${fingerWords(f.holes).toLowerCase()}.`;
+  } else if(type==='beats'){
+    const d=+arg; if(!DUR_NAMES[d]) return null;
+    q.visual=staffOne(69,d,Math.min(w,240)); q.prompt='How many beats does this note last?';
+    q.answer=String(d); q.text=true;
+    q.choices=['0.5','1','2','3','4'].map(v=>({v,html:v==='0.5'?'½':v}));
+    q.explain=`This is a ${DUR_NAMES[d]}. It lasts ${d===0.5?'half a beat':d===1?'1 beat':d+' beats'}.`;
+  } else if(type==='bar'){
+    const ds=arg.split('-').map(Number); const sum=ds.reduce((a,b)=>a+b,0); if(!ds.every(d=>DUR_NAMES[d])) return null;
+    const ms=[67,69,71,74,69,67]; const notes=ds.map((d,k)=>({m:ms[k%ms.length],d,bar:k===ds.length-1}));
+    q.visual=renderScore(notes,[sum,4],Math.min(w,420),{fing:false,letters:false,time:false,tap:false});
+    q.prompt='Count the beats. How many beats are in this bar?';
+    q.answer=String(sum); q.text=true;
+    q.choices=['2','3','4'].map(v=>({v,html:v}));
+    q.explain=ds.map(d=>d===0.5?'½':String(d)).join(' + ')+` = ${sum} beats.`;
+  } else return null;
+  return q;
+}
+// A short plain-words name for a question, used to list weak spots for grown-ups.
+function keyLabel(key){
+  const type=key.slice(0,key.indexOf(':')), arg=key.slice(key.indexOf(':')+1);
+  if(type==='mc') return MCQ[arg]?MCQ[arg].q:key;
+  if(type==='name') return `Reading ${noteName(+arg)} on the staff`;
+  if(type==='ls') return `Line or space: ${noteName(+arg)}`;
+  if(type==='fing'||type==='fingx') return `Fingers for ${noteName(+arg)}`;
+  if(type==='ear') return `Hearing ${noteName(+arg)}`;
+  if(type==='hilo') return 'Hearing if a tune goes up or down';
+  if(type==='tempo') return 'Hearing a fast or slow beat';
+  if(type==='beats') return `How long a ${DUR_NAMES[+arg]||'note'} lasts`;
+  if(type==='bar') return 'Counting the beats in a bar';
+  return key;
+}
+
+// ---------- Records: every quiz, game and practice is saved ----------
+function dayKey(d){ d=d||new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function normProgress(p){ p=p||{}; return {lessons:p.lessons||{},games:p.games||{},stars:p.stars||{},items:p.items||{},log:Array.isArray(p.log)?p.log:[],days:p.days||{}}; }
+function mergeProgress(a,b){
+  a=normProgress(a); b=normProgress(b);
+  const out={lessons:{...a.lessons,...b.lessons},games:{...a.games},stars:{...a.stars},items:{...a.items},days:{...a.days},log:[]};
+  for(const [k,v] of Object.entries(b.games)) out.games[k]=Math.max(out.games[k]??-1,v);
+  for(const [k,v] of Object.entries(b.stars)) out.stars[k]=Math.max(out.stars[k]||0,v);
+  for(const [k,v] of Object.entries(b.items)){ const o=out.items[k]; if(!o || (v.r+v.w)>(o.r+o.w)) out.items[k]=v; }
+  for(const [k,v] of Object.entries(b.days)) out.days[k]=Math.max(out.days[k]||0,v);
+  const seen=new Set(); for(const e of [...a.log,...b.log]){ const id=e.t+'|'+e.kind+'|'+e.id; if(!seen.has(id)){ seen.add(id); out.log.push(e); } }
+  out.log.sort((x,y)=>x.t-y.t); if(out.log.length>LOG_MAX) out.log=out.log.slice(-LOG_MAX);
+  return out;
+}
+const LOG_MAX=400;
+function logActivity(e){
+  const P=S.progress; e.t=Date.now(); P.log.push(e);
+  if(P.log.length>LOG_MAX) P.log.splice(0,P.log.length-LOG_MAX);
+  Store.saveProgress();
+}
+function noteItem(key,right){
+  const it=S.progress.items[key]||{r:0,w:0,s:0,t:0};
+  if(right){ it.r++; it.s++; } else { it.w++; it.s=0; }
+  it.t=Date.now(); S.progress.items[key]=it;
+}
+// A question is a weak spot once it was missed, until it is answered right twice in a row.
+function weakKeys(){ return Object.entries(S.progress.items).filter(([k,v])=>v.w>0 && v.s<2 && makeQ(k,300)).sort((a,b)=>(b[1].w-b[1].r*0.3)-(a[1].w-a[1].r*0.3)||b[1].t-a[1].t).map(([k])=>k); }
+// Active minutes: any tap, or a note heard by the mic, marks that minute as practice.
+const Activity={ last:0, touch(){ const m=Math.floor(Date.now()/60000); if(m===this.last) return; this.last=m; const k=dayKey(); S.progress.days[k]=(S.progress.days[k]||0)+1; Store.saveProgress(); } };
+function practiceDays(){ const d=new Set(S.progress.log.map(e=>dayKey(new Date(e.t)))); for(const [k,v] of Object.entries(S.progress.days)) if(v>=5) d.add(k); return d; }
+// Days in a row with practice: a quiz, a game, song practice, or at least 5 active minutes.
+function streak(){
+  const days=practiceDays(); let n=0; const d=new Date();
+  if(!days.has(dayKey(d))) d.setDate(d.getDate()-1);
+  while(days.has(dayKey(d))){ n++; d.setDate(d.getDate()-1); }
+  return n;
+}
+function lessonDone(id){ return (S.progress.stars[id]||0)>=2 || !!S.progress.lessons[id]; }
+function lessonOpen(k){ return k===0 || S.settings.openAll || lessonDone(LESSONS[k-1].id); }
+function totalStars(){ return LESSONS.reduce((a,l)=>a+(S.progress.stars[l.id]||0),0); }
+const STAR_PATH='M12 2.6l2.9 6.1 6.6.8-4.9 4.6 1.3 6.6L12 17.5 6.1 20.7l1.3-6.6L2.5 9.5l6.6-.8z';
+function starsHTML(n,big){ return `<span class="stars${big?' big':''}" role="img" aria-label="${n} of 3 stars">${[0,1,2].map(k=>`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${STAR_PATH}" class="${k<n?'on':''}"/></svg>`).join('')}</span>`; }
+const FLAME_ICON=`<svg viewBox="5 1.5 14 18" aria-hidden="true"><path d="M12 2.5c1 3.2 4.8 5.4 4.8 10a4.8 4.8 0 0 1-9.6 0c0-2.2 1-3.6 2.2-4.8.2 1.6.9 2.6 2 3 0-2.8.4-5.6.6-8.2z"/></svg>`;
+const LOCK_ICON=`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>`;
+
 function noteButtons(act,extra=''){
   return `<div class="answers">${FLUTE.map(f=>`<button class="ans" data-act="${act}" data-m="${f.m}" ${extra}><span style="color:${colorFor(f.m)}">${f.name}</span><small>${highLow(f)||'&nbsp;'}</small></button>`).join('')}</div>`;
 }
@@ -1707,6 +1979,36 @@ function lessonBody(id){
       <p>On paper, G to A is a <strong>step</strong>: the very next letter. B to D is a <strong>skip</strong>, because it jumps over C, even though your fingers only move one hole.</p>
       <p>Pentatonic notes never clash, so any notes you play together or one after another sound good. That makes it a great flute for making up your own tunes.</p>
       <div class="row"><button class="btn" data-act="go-write">Write my own tune</button></div>`;
+    case 'hl': return `<h2>High and low</h2>
+      <p>Some sounds are <strong>high</strong>, like a bird chirping. Some are <strong>low</strong>, like a big dog barking. How high or low a sound is is called its <strong>pitch</strong>.</p>
+      <p>On your flute, the more holes you cover, the lower the note. Cover every hole for the lowest note, low D. Open every hole for the highest note, high E.</p>
+      <div class="row"><button class="btn" data-act="note" data-m="62">Hear low D</button><button class="btn" data-act="note" data-m="76">Hear high E</button></div>
+      <p>When one note comes after another, the tune can go <strong>up</strong> (higher) or <strong>down</strong> (lower).</p>
+      <div class="row"><button class="btn primary" data-act="seq" data-ms="67,74">Hear it go up</button><button class="btn primary" data-act="seq" data-ms="76,69">Hear it go down</button></div>
+      <p><strong>Try it:</strong> play low D, then high E on your flute. Which one is higher?</p>`;
+    case 'ls': {
+      const lines=[64,67,71,74].map(m=>({m,d:1,bar:false})), spaces=[69,76].map(m=>({m,d:1,bar:false}));
+      lines[3].bar=true; spaces[1].bar=true;
+      return `<h2>Where each note lives</h2>
+      <p>Every note has its own home on the staff. Some notes sit <strong>on a line</strong>, with the line going through the middle of the note. Others sit <strong>in a space</strong>, between two lines.</p>
+      <p><strong>Line notes:</strong> E, G, B and high D. Remember them with “<strong>E</strong>very <strong>G</strong>ood <strong>B</strong>ird <strong>D</strong>ances.”</p>
+      <div class="score">${renderScore(lines,[4,4],Math.min(w,420),{fing:false,time:false,letters:true})}</div>
+      <p><strong>Space notes:</strong> A and high E. A is in the space just above G.</p>
+      <div class="score">${renderScore(spaces,[4,4],Math.min(w,300),{fing:false,time:false,letters:true})}</div>
+      <p>Low D hangs just under the staff, below the bottom line.</p>
+      <div class="row"><button class="btn" data-act="game" data-id="reader">Play Note Reader</button></div>`;
+    }
+    case 'fm': return `<h2>From the page to your fingers</h2>
+      <p>Now put it together: see a note, know its name, and cover the right holes.</p>
+      <p>The little flute under each note shows the fingers. A filled dot is a covered hole. The dot on the left is the thumb hole on the back.</p>
+      <div class="score">${renderScore(scale,[4,4],w,{fing:true,time:false,letters:true})}</div>
+      <p>In the quiz you'll see a note with no letter. Pick the flute that plays it.</p>
+      <div class="row"><button class="btn" data-act="game" data-id="finger">Play Finger Match</button></div>`;
+    case 'bt': return `<h2>The steady beat</h2>
+      <p>Under almost every song there is a <strong>beat</strong>: a steady pulse, like a clock ticking or your heart beating. When you tap your foot to music, you are tapping the beat.</p>
+      <p>How fast the beat goes is called the <strong>tempo</strong>. We count it in <strong>beats a minute</strong>. 60 beats a minute is one tick every second. 120 is twice as fast.</p>
+      <div class="row"><button class="btn primary" data-act="beat-demo" data-bpm="60">Hear 60 beats a minute</button><button class="btn primary" data-act="beat-demo" data-bpm="120">Hear 120 beats a minute</button></div>
+      <p><strong>Try it:</strong> tap the metronome button at the top of the screen and clap along. Then make it faster or slower with − and +.</p>`;
     case 'l7': return `<h2>Moving a song to fit</h2>
       <p>Most songs were written for other instruments, so some use notes your flute doesn't have. If you move every note up or down by the same amount, the song still sounds like itself. Musicians call this <strong>transposing</strong>.</p>
       <p>The Make page tries every possible move and picks the one where the most notes land on your flute.</p>
@@ -1717,30 +2019,206 @@ function lessonBody(id){
 }
 function renderLearn(){
   const v=$('#view-learn');
-  const P=S.progress;
+  const P=S.progress, st=streak(), weak=weakKeys();
+  if(!LESSONS.some(l=>l.id===S.lesson)) S.lesson=nextLessonId();
+  const cur=id=>!S.game && S.pane==='lesson' && S.lesson===id;
   v.innerHTML=`<div class="learn">
     <nav class="lnav" aria-label="Lessons and games">
-      <h3>Lessons</h3>
-      ${LESSONS.map((l,k)=>`<button class="lbtn" data-act="lesson" data-id="${l.id}" aria-current="${S.lesson===l.id && !S.game}"><span class="num ${P.lessons[l.id]?'done':''}">${P.lessons[l.id]?'✓':k+1}</span>${l.title}</button>`).join('')}
-      <h3>Games</h3>
-      ${GAMES.map(g=>`<button class="lbtn" data-act="game" data-id="${g.id}" aria-current="${S.game&&S.game.id===g.id}"><span class="num">${P.games[g.id]!=null?P.games[g.id]:'★'}</span>${g.title}</button>`).join('')}
+      <div class="badges">
+        <span class="badge"><svg viewBox="0 0 24 24" aria-hidden="true" class="bstar"><path d="${STAR_PATH}"/></svg><strong>${totalStars()}</strong> ${totalStars()===1?'star':'stars'}</span>
+        <span class="badge ${st?'hot':''}">${FLAME_ICON}<strong>${st}</strong> ${st===1?'day':'days'} in a row</span>
+      </div>
+      ${UNITS.map((u,ui)=>`<h3>Unit ${ui+1}: ${esc(u.title)}</h3>`+u.lessons.map(l=>{
+        const k=LESSONS.findIndex(x=>x.id===l.id), open=lessonOpen(k), done=lessonDone(l.id), stars=P.stars[l.id]||0;
+        return `<button class="lbtn ${open?'':'locked'}" data-act="lesson" data-id="${l.id}" aria-current="${cur(l.id)}">
+          <span class="num ${done?'done':''}">${done?'✓':open?k+1:LOCK_ICON}</span>
+          <span class="lt">${esc(l.title)}${stars?starsHTML(stars):''}${open?'':'<span class="vh"> (locked)</span>'}</span></button>`;
+      }).join('')).join('')}
+      <h3>Practice</h3>
+      ${weak.length?`<button class="lbtn" data-act="review" aria-current="${!!(S.quiz&&S.quiz.review&&S.pane==='lesson'&&!S.game)}"><span class="num">↻</span><span class="lt">Practice my mistakes<small class="hint">${weak.length} to fix</small></span></button>`:''}
+      ${GAMES.map(g=>`<button class="lbtn" data-act="game" data-id="${g.id}" aria-current="${S.game&&S.game.id===g.id}"><span class="num">${P.games[g.id]!=null?P.games[g.id]:'★'}</span><span class="lt">${g.title}</span></button>`).join('')}
+      <h3>Grown-ups</h3>
+      <button class="lbtn" data-act="grownups" aria-current="${!S.game&&S.pane==='grownups'}"><span class="num">i</span><span class="lt">Progress and records</span></button>
     </nav>
     <div class="lesson panel" id="lessonPane"></div>
   </div>`;
   renderLessonPane();
 }
+function nextLessonId(){ const k=LESSONS.findIndex((l,i)=>lessonOpen(i)&&!lessonDone(l.id)); return LESSONS[k<0?0:k].id; }
 function renderLessonPane(){
   const el=$('#lessonPane'); if(!el) return;
   stopFollow();
   if(S.game){ renderGame(); return; }
-  const id=S.lesson; const done=S.progress.lessons[id];
-  const k=LESSONS.findIndex(l=>l.id===id);
-  el.innerHTML=lessonBody(id)+`<div class="row" style="margin-top:6px">
-    <button class="btn ${done?'':'primary'}" data-act="lesson-done">${done?'Done ✓':'I learned this'}</button>
-    ${k<LESSONS.length-1?`<button class="btn" data-act="lesson" data-id="${LESSONS[k+1].id}">Next lesson ›</button>`:''}
-  </div>`;
+  if(S.pane==='grownups'){ renderGrownups(el); return; }
+  if(S.quiz && (S.quiz.review || S.quiz.lesson===S.lesson)){ renderQuiz(el); return; }
+  const id=S.lesson, k=LESSONS.findIndex(l=>l.id===id), L=LESSONS[k];
+  if(!lessonOpen(k)){
+    el.innerHTML=`<h2>${LOCK_ICON.replace('<svg','<svg class="biglock"')} ${esc(L.title)}</h2>
+      <p>This lesson opens when you pass the quiz for “${esc(LESSONS[k-1].title)}”. Get 4 out of 5 right.</p>
+      <div class="row"><button class="btn primary" data-act="lesson" data-id="${LESSONS[k-1].id}">Go to “${esc(LESSONS[k-1].title)}”</button></div>`;
+    return;
+  }
+  const stars=S.progress.stars[id]||0, next=LESSONS[k+1];
+  el.innerHTML=`<p class="hint">Unit ${UNITS.findIndex(u=>u.id===L.unit)+1}: ${esc(L.unitTitle)} · Lesson ${k+1} of ${LESSONS.length}</p>`+lessonBody(id)+`
+    <div class="panel stack quizcall" style="gap:10px">
+      <h3>Quiz time</h3>
+      <p>Answer 5 questions about this lesson. Get 4 right to open the next lesson.${stars?' Your best: '+starsHTML(stars):''}</p>
+      <div class="row">
+        <button class="btn primary" data-act="quiz-start">${stars?'Take the quiz again':'Take the quiz'}</button>
+        ${next && lessonOpen(k+1)?`<button class="btn" data-act="lesson" data-id="${next.id}">Next lesson ›</button>`:''}
+      </div>
+    </div>
+    <details class="grown"><summary>For grown-ups</summary><p>${esc(L.grown)}</p></details>`;
   const ex=$('#exScore'); if(ex) ex.innerHTML=renderScore(exNotes(id),[4,4],scoreWidth(ex));
 }
+// ---- Quiz ----
+function startQuiz(lessonId,keys,review){
+  stopRun(true);
+  const w=Math.min(420,($('#lessonPane')?.clientWidth||460)-40);
+  const qs=keys.map(k=>makeQ(k,w)).filter(Boolean);
+  if(!qs.length) return;
+  S.quiz={lesson:lessonId,review:!!review,qs,k:0,res:[],picked:null,state:'ask',t0:Date.now(),done:false};
+  S.pane='lesson';
+  renderLearn();
+  playQ();
+}
+function playQ(){ const z=S.quiz; const q=z&&!z.done&&z.qs[z.k]; if(q&&q.play) setTimeout(()=>{ if(S.quiz===z) q.play(); },250); }
+function quizTitle(z){ return z.review?'Practice my mistakes':'Quiz: '+(LESSONS.find(l=>l.id===z.lesson)||{}).title; }
+function renderQuiz(el){
+  const z=S.quiz, n=z.qs.length;
+  const dots=`<div class="qdots" aria-hidden="true">${z.qs.map((_,i)=>`<i class="${i<z.res.length?(z.res[i]?'r':'w'):i===z.k&&!z.done?'c':''}"></i>`).join('')}</div>`;
+  const head=`<div class="row" style="justify-content:space-between"><h2>${esc(quizTitle(z))}</h2>${dots}</div>`;
+  if(z.done){
+    const score=z.res.filter(Boolean).length, pct=score/n, stars=pct>=1?3:pct>=0.8?2:pct>=0.6?1:0;
+    const k=LESSONS.findIndex(l=>l.id===z.lesson), next=LESSONS[k+1];
+    const passed=pct>=0.8;
+    const fixed=z.review?z.qs.filter(q=>{ const it=S.progress.items[q.key]; return it&&it.s>=2; }).length:0, left=z.review?n-fixed:0;
+    const msg= z.review ? (left===0?'All fixed! They won\'t come back unless you miss them again.'
+        : (fixed?`You fixed ${fixed}. `:'')+`A mistake is fixed when you get it right twice in a row, so ${left===1?'1 question':left+' questions'} will come back for one more try.`)
+      : stars===3 ? 'Perfect! Every answer right.' : passed ? 'You passed!'+(next?' The next lesson is open.':'') : 'Almost there. Read the lesson again, then try the quiz. You need 4 right to pass.';
+    const missed=z.qs.filter((q,i)=>!z.res[i]);
+    el.innerHTML=head+`<div class="quizend">
+        ${z.review?'':starsHTML(stars,true)}
+        <h2 style="font-size:40px">${score} out of ${n}</h2>
+        <p>${msg}${z.newBest?' <strong>New best!</strong>':''}</p>
+      </div>
+      ${missed.length?`<div class="stack" style="gap:6px"><h3>To practice</h3><ul class="missed">${missed.map(q=>`<li>${esc(q.explain)}</li>`).join('')}</ul></div>`:''}
+      <div class="row">
+        ${!z.review && passed && next ? `<button class="btn primary" data-act="lesson" data-id="${next.id}">Next lesson ›</button>`:''}
+        ${z.review ? (weakKeys().length?`<button class="btn primary" data-act="review">Practice more mistakes</button>`:'') : `<button class="btn ${passed&&next?'':'primary'}" data-act="quiz-start">Try again</button>`}
+        ${z.review ? `<button class="btn" data-act="quiz-close">Back to lessons</button>` : `<button class="btn" data-act="quiz-close">Back to the lesson</button>`}
+      </div>`;
+    return;
+  }
+  const q=z.qs[z.k], answered=z.state!=='ask';
+  const choiceCls=c=> answered ? (c.v===q.answer?'right':c.v===z.picked?'wrong':'') : '';
+  const choices=`<div class="answers ${q.flutes?'flutes':''}">${q.choices.map((c,i)=>`<button class="ans ${q.text?'text':''} ${q.flutes?'flute':''} ${choiceCls(c)}" data-act="q-answer" data-i="${i}" ${answered?'disabled':''} ${q.flutes?`aria-label="Choice ${i+1}"`:''}>${c.html}</button>`).join('')}</div>`;
+  const right=answered && z.picked===q.answer;
+  el.innerHTML=head+`<p class="hint">Question ${z.k+1} of ${n}</p>
+    ${q.visual?`<div class="score">${q.visual}</div>`:''}
+    <p class="qprompt">${esc(q.prompt)}</p>
+    ${q.play?`<div class="row"><button class="btn" data-act="q-play">▶ Hear it again</button></div>`:''}
+    ${choices}
+    <p class="feedback ${answered?(right?'right':'wrong'):''}" aria-live="polite">${answered?(right?'Yes! ':'Not quite. ')+esc(q.explain):''}</p>
+    ${answered?`<div class="row"><button class="btn primary" data-act="q-next">${z.k+1<n?'Next question ›':'See my score'}</button></div>`:''}`;
+}
+function answerQ(i){
+  const z=S.quiz; if(!z||z.state!=='ask') return;
+  const q=z.qs[z.k], c=q.choices[i]; if(!c) return;
+  z.picked=c.v; z.state='answered';
+  const right=c.v===q.answer; z.res.push(right); noteItem(q.key,right);
+  if(q.notes||q.flutes) playNow(+q.answer,0.7);
+  Store.saveProgress();
+  renderQuiz($('#lessonPane'));
+  $('[data-act="q-next"]')?.focus();
+}
+function nextQ(){
+  const z=S.quiz; if(!z) return;
+  z.k++; z.state='ask'; z.picked=null;
+  if(z.k>=z.qs.length) finishQuiz(); else { renderQuiz($('#lessonPane')); playQ(); }
+}
+function finishQuiz(){
+  const z=S.quiz; z.done=true;
+  const score=z.res.filter(Boolean).length, n=z.qs.length, pct=score/n, stars=pct>=1?3:pct>=0.8?2:pct>=0.6?1:0;
+  const P=S.progress;
+  if(!z.review){
+    if(stars>(P.stars[z.lesson]||0)){ if(P.stars[z.lesson]) z.newBest=true; P.stars[z.lesson]=stars; }
+    if(pct>=0.8) P.lessons[z.lesson]=true;
+  }
+  logActivity({kind:z.review?'review':'quiz',id:z.lesson||'review',title:quizTitle(z).replace(/^Quiz: /,''),score,total:n,stars:z.review?undefined:stars,ms:Date.now()-z.t0,missed:z.qs.filter((q,i)=>!z.res[i]).map(q=>q.key)});
+  renderLearn();
+}
+// ---- Grown-ups page ----
+function fmtDate(t){ return new Date(t).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}); }
+function fmtTime(t){ return new Date(t).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}); }
+function logText(e){
+  const missed=(e.missed||[]).length?` Missed: ${[...new Set(e.missed.map(keyLabel))].join('; ')}.`:'';
+  switch(e.kind){
+    case 'quiz': return [`Quiz: ${e.title}`,`${e.score} of ${e.total}${e.stars!=null?' · '+e.stars+(e.stars===1?' star':' stars'):''}.${missed}`];
+    case 'review': return ['Practice my mistakes',`${e.score} of ${e.total}.${missed}`];
+    case 'game': return [`Game: ${e.title}`,`${e.score} of ${e.total}.${missed}`];
+    case 'follow': return [`Follow me: ${e.title}`,`${e.score} of ${e.total} notes right the first time.`+(e.timing?` Timing: ${e.timing.ok} of ${e.timing.total} on the beat.`:'')];
+    case 'scored': return [`Play in time: ${e.title}`,`${e.score} of ${e.total} notes right.`];
+    case 'exercise': return [`Your turn: ${e.title}`,`${e.score} of ${e.total} notes right the first time.`];
+    case 'record': return [`Recorded a tune: ${e.title}`,`${e.notes} notes.`];
+  }
+  return [e.kind,''];
+}
+function minutesChart(){
+  const days=[]; const d=new Date(); d.setDate(d.getDate()-13);
+  for(let i=0;i<14;i++){ days.push({k:dayKey(d),lab:d.toLocaleDateString('en-US',{weekday:'narrow'}),full:d.toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric'}),v:S.progress.days[dayKey(d)]||0}); d.setDate(d.getDate()+1); }
+  const max=Math.max(10,...days.map(x=>x.v)), W=560, H=170, top=18, base=140, bw=W/14;
+  const peak=days.reduce((a,b)=>b.v>a.v?b:a,days[0]);
+  const bars=days.map((x,i)=>{
+    const h=x.v?Math.max(4,(base-top)*x.v/max):0, x0=i*bw+bw*0.2, w=bw*0.6, y=base-h;
+    const r=Math.min(4,h);
+    const path=h?`<path d="M${x0},${base} V${y+r} Q${x0},${y} ${x0+r},${y} H${x0+w-r} Q${x0+w},${y} ${x0+w},${y+r} V${base} Z" class="cbar"><title>${x.full}: ${x.v} minutes</title></path>`:'';
+    const lab=(x===peak&&x.v)||(i===13&&x.v)?`<text x="${x0+w/2}" y="${y-5}" text-anchor="middle" class="cval">${x.v}</text>`:'';
+    return `<g>${path}${lab}<rect x="${i*bw}" y="${top}" width="${bw}" height="${base-top}" fill="transparent"><title>${x.full}: ${x.v} minutes</title></rect><text x="${x0+w/2}" y="${base+18}" text-anchor="middle" class="caxis">${x.lab}</text></g>`;
+  }).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" class="mchart" role="img" aria-label="Minutes of practice each day for the last 14 days"><line x1="0" x2="${W}" y1="${base}" y2="${base}" class="cbase"/>${bars}</svg>
+    <table class="vh"><caption>Minutes of practice each day</caption><tbody>${days.map(x=>`<tr><th>${x.full}</th><td>${x.v}</td></tr>`).join('')}</tbody></table>`;
+}
+function renderGrownups(el){
+  const P=S.progress, st=streak();
+  const week=(()=>{ let m=0; const d=new Date(); for(let i=0;i<7;i++){ m+=P.days[dayKey(d)]||0; d.setDate(d.getDate()-1); } return m; })();
+  const passed=LESSONS.filter(l=>lessonDone(l.id)).length;
+  // weak spots grouped by plain-words label
+  const groups={};
+  for(const k of weakKeys()){ const lab=keyLabel(k), it=P.items[k]; const g=groups[lab]||(groups[lab]={lab,r:0,w:0}); g.r+=it.r; g.w+=it.w; }
+  const weak=Object.values(groups).slice(0,8);
+  const byLesson=id=>P.log.filter(e=>e.kind==='quiz'&&e.id===id);
+  const hist=P.log.slice(-80).reverse();
+  let lastDay='';
+  el.innerHTML=`<h2>For grown-ups</h2>
+    <p class="lede">What has been practiced, how it went, and what needs more work. You don't need to know music: each lesson has a "For grown-ups" note at the bottom.</p>
+    <div class="tiles">
+      <div class="tile"><b>${st}</b>${st===1?'day':'days'} in a row</div>
+      <div class="tile"><b>${week}</b>minutes this week</div>
+      <div class="tile"><b>${passed} of ${LESSONS.length}</b>lessons passed</div>
+      <div class="tile"><b>${totalStars()} of ${LESSONS.length*3}</b>stars</div>
+    </div>
+    <div class="stack" style="gap:6px"><h3>Minutes of practice, last 14 days</h3>${minutesChart()}
+      <p class="hint">A minute counts when the app is tapped or hears a note in that minute.</p></div>
+    <div class="stack" style="gap:8px"><h3>Needs more practice</h3>
+      ${weak.length?`<ul class="weak">${weak.map(g=>`<li><span>${esc(g.lab)}</span><span class="hint">${g.r} right, ${g.w} missed</span></li>`).join('')}</ul>
+      <div class="row"><button class="btn" data-act="review">Practice these now</button></div>`
+      :'<p class="hint">Nothing yet. Questions he misses show up here until he gets them right twice in a row.</p>'}</div>
+    <div class="stack" style="gap:8px"><h3>Lessons</h3>
+      <div class="tablewrap"><table class="gtable"><thead><tr><th>Lesson</th><th>Stars</th><th>Best</th><th>Tries</th><th>Last tried</th></tr></thead><tbody>
+      ${LESSONS.map(l=>{ const q=byLesson(l.id), best=q.reduce((a,e)=>Math.max(a,e.score),-1), last=q[q.length-1];
+        return `<tr><td>${esc(l.title)}</td><td>${starsHTML(P.stars[l.id]||0)}</td><td>${best>=0?best+' of 5':'–'}</td><td>${q.length||'–'}</td><td>${last?fmtDate(last.t):'–'}</td></tr>`; }).join('')}
+      </tbody></table></div></div>
+    <div class="stack" style="gap:8px"><h3>History</h3>
+      ${hist.length?`<ul class="hist">${hist.map(e=>{ const [a,b]=logText(e), day=fmtDate(e.t); const h=day!==lastDay?`<li class="hday">${day}</li>`:''; lastDay=day;
+        return h+`<li><span class="htime">${fmtTime(e.t)}</span><span><strong>${esc(a)}</strong> ${esc(b)}</span></li>`; }).join('')}</ul>`
+        :'<p class="hint">Quizzes, games, Follow me, Play in time and recordings will be listed here.</p>'}</div>
+    <div class="stack" style="gap:6px"><h3>Settings</h3>
+      <label class="check"><input type="checkbox" id="optOpenAll" ${S.settings.openAll?'checked':''}> Open every lesson, without passing the one before</label>
+      <p class="hint">${esc($('#storeNote')?.textContent||'')}</p></div>`;
+  $('#optOpenAll').addEventListener('change',e=>{ S.settings.openAll=e.target.checked; Store.saveSettings(); renderLearn(); });
+}
+
 function pick(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
 function newRound(){
   const g=S.game;
@@ -1754,7 +2232,7 @@ function newRound(){
 }
 function startGame(id){
   stopRun(true);
-  S.game={id,round:0,score:0,total:10,target:null,state:'ask'};
+  S.game={id,round:0,score:0,total:10,target:null,state:'ask',missed:[],t0:Date.now()};
   newRound();
   renderLearn();
 }
@@ -1797,6 +2275,8 @@ function finishAnswer(right){
   const g=S.game;
   g.state=right?'right':'wrong';
   if(right) g.score++;
+  const key=(g.id==='reader'?'name:':g.id==='finger'?'fingx:':'ear:')+g.target;
+  noteItem(key,right); if(!right) g.missed.push(key);
   if(g.id!=='ear') playNow(g.target,0.7);
   if(g.id==='finger'){ S.big={holes:BY_MIDI.get(g.target).holes.slice(),m:g.target,interactive:false}; drawBig(); }
   renderGame();
@@ -1805,7 +2285,8 @@ function nextRound(){
   const g=S.game; g.round++;
   if(g.round>=g.total){
     const prev=S.progress.games[g.id];
-    if(prev==null || g.score>prev){ S.progress.games[g.id]=g.score; Store.saveProgress(); }
+    if(prev==null || g.score>prev){ S.progress.games[g.id]=g.score; }
+    logActivity({kind:'game',id:g.id,title:GAMES.find(x=>x.id===g.id).title,score:g.score,total:g.total,ms:Date.now()-g.t0,missed:g.missed});
     if(g.id==='finger'){ S.big={...S.big,interactive:false}; drawBig(); }
     renderLearn(); return;
   }
@@ -1939,6 +2420,7 @@ function onMicFrame(fr,ev){
   for(const e of ev){
     if(FS) FS.core.feed(e);
     if(REC) recFeed(e);
+    if(e.type==='on') Activity.touch();
     if(e.type==='on' && S.view==='flute' && BY_MIDI.has(e.m)){
       S.explore={holes:BY_MIDI.get(e.m).holes.slice(),m:e.m}; S.big={holes:S.explore.holes.slice(),m:e.m,interactive:true}; drawBig();
       document.querySelectorAll('.ncard').forEach(c=>c.setAttribute('aria-pressed',+c.dataset.m===e.m));
@@ -2061,7 +2543,11 @@ async function startFollowSong(){
     Metro.set(p.tempo,Math.round(beatsPerBar(p.song.meter)));
     if(!Metro.on && Metro.start()) Metro.auto=true;
   }
-  startFollow(p.song.notes,$('#playerScore'),$('#playFb'),()=>{ p.mode=null; syncPlayerButtons(); },{timing});
+  const song=p.song;
+  startFollow(song.notes,$('#playerScore'),$('#playFb'),r=>{
+    p.mode=null; syncPlayerButtons();
+    logActivity({kind:'follow',id:song.id,title:song.title,score:r.ok,total:r.total,timing:r.timing?{ok:r.timing.ok,total:r.timing.total}:undefined});
+  },{timing});
 }
 async function startScored(){
   if(!await ensureMic()) return;
@@ -2085,6 +2571,7 @@ async function startScored(){
       el.querySelectorAll('.nt.on').forEach(g=>g.classList.remove('on'));
       for(const [k,v] of Object.entries(r.res)){ const g=el.querySelector(`.nt[data-i="${k}"]`); g&&g.classList.add(v); }
       const pct=Math.round(100*r.ok/Math.max(1,r.total));
+      logActivity({kind:'scored',id:s.id,title:s.title,score:r.ok,total:r.total});
       fb.className='feedback '+(pct>=80?'right':'');
       fb.textContent=`${r.ok} of ${r.total} notes right (${pct}%). `+(pct===100?'Perfect!':pct>=80?'Great playing! Red notes were missed.':'Red notes were missed. Try Follow me, or slow down the speed.');
     },
@@ -2220,6 +2707,7 @@ window.addEventListener('hashchange',()=>{ const h=location.hash.slice(1); if(VI
 
 // ---------- Actions ----------
 document.addEventListener('click',e=>{
+  Activity.touch();
   const a=e.target.closest('[data-act]'); if(!a) return;
   const act=a.dataset.act; const m=a.dataset.m!=null && a.dataset.m!=='rest' ? +a.dataset.m : null;
   switch(act){
@@ -2250,7 +2738,7 @@ document.addEventListener('click',e=>{
     case 'scored': startScored(); break;
     case 'mic': if(Mic.on) stopMic(); else ensureMic().then(ok=>{ if(ok && S.view==='learn' && S.game) renderGame(); }); break;
     case 'mic-help-close': $('#micHelp').hidden=true; $('#micBtn').focus(); break;
-    case 'ex-start': { const id=a.dataset.ex; ensureMic().then(ok=>{ if(!ok) return; const el=$('#exScore'); el.innerHTML=renderScore(exNotes(id),[4,4],scoreWidth(el)); startFollow(exNotes(id),el,$('#exFb')); }); break; }
+    case 'ex-start': { const id=a.dataset.ex; ensureMic().then(ok=>{ if(!ok) return; const el=$('#exScore'); el.innerHTML=renderScore(exNotes(id),[4,4],scoreWidth(el)); startFollow(exNotes(id),el,$('#exFb'),r=>logActivity({kind:'exercise',id,title:(LESSONS.find(l=>l.id===id)||{}).title||id,score:r.ok,total:r.total})); }); break; }
     case 'step': stopRun(true); stopFollow(); S.player.mode='step'; setCursor(Math.max(0,S.player.idx)); syncPlayerButtons(); { const n=S.player.song.notes[S.player.idx]; if(n&&n.m!=null) playNow(n.m,0.6); } break;
     case 'next': case 'prev': {
       const N=S.player.song.notes.length; let i=S.player.idx+(act==='next'?1:-1); i=Math.max(0,Math.min(N-1,i));
@@ -2301,6 +2789,7 @@ document.addEventListener('click',e=>{
       const song={...mk.preview,id:'my-'+Date.now().toString(36),title:(mk.title||'Untitled').trim()||'Untitled',created:Date.now()};
       S.mySongs.push(song);
       Store.saveSong(song).then(ok=>{ if(ok) toast('Saved to My Songs.'); });
+      if(mk.origin==='recorded') logActivity({kind:'record',id:song.id,title:song.title,notes:song.notes.filter(n=>n.m!=null).length});
       break;
     }
     case 'listen-made': { const mk=S.make; if(mk.preview) playNotes(mk.preview.notes,mk.bpm||S.player.tempo); break; }
@@ -2319,8 +2808,16 @@ document.addEventListener('click',e=>{
     case 'c-undo': S.compose.notes.pop(); composeToMake(); renderMakePanel(); break;
     case 'c-clear': S.compose.notes=[]; composeToMake(); renderMakePanel(); break;
     case 'go-write': S.make.tab='write'; go('make'); composeToMake(); break;
-    case 'lesson': S.game=null; S.lesson=a.dataset.id; S.big={...S.big,interactive:false,hideName:false}; drawBig(); renderLearn(); break;
-    case 'lesson-done': S.progress.lessons[S.lesson]=true; Store.saveProgress(); renderLearn(); break;
+    case 'lesson': S.game=null; S.pane='lesson'; if(S.quiz && (S.quiz.done || S.quiz.lesson!==a.dataset.id || S.quiz.review)) S.quiz=null; S.lesson=a.dataset.id; S.big={...S.big,interactive:false,hideName:false}; drawBig(); renderLearn(); break;
+    case 'quiz-start': { const L=LESSONS.find(l=>l.id===S.lesson); if(L) startQuiz(L.id,quizKeys(L.quiz)); break; }
+    case 'q-answer': answerQ(+a.dataset.i); break;
+    case 'q-next': nextQ(); break;
+    case 'q-play': { const z=S.quiz, q=z&&z.qs[z.k]; if(q&&q.play) q.play(); break; }
+    case 'quiz-close': S.quiz=null; renderLearn(); $('#lessonPane')?.scrollIntoView({block:'start'}); break;
+    case 'review': S.game=null; startQuiz(null,weakKeys().slice(0,5),true); break;
+    case 'grownups': S.game=null; S.quiz=null; S.pane='grownups'; renderLearn(); break;
+    case 'seq': stopRun(true); playSeq(a.dataset.ms.split(',').map(Number),70); break;
+    case 'beat-demo': { const bpm=+a.dataset.bpm, spb=60/bpm; runEvents(Array.from({length:8},(_,k)=>({t:k*spb,click:true,accent:k%4===0,vol:0.3}))); break; }
     case 'fifths': playSeq([67,74,62,69,69,76,64,71],76,{beats:[1,1.5,1,1.5,1,1.5,1,1.5]}); break;
     case 'walk': { const seq=FLUTE.map(f=>f.m); playSeq(a.dataset.dir==='up'?seq:seq.reverse(),70); break; }
     case 'dur-demo': {
@@ -2337,7 +2834,7 @@ document.addEventListener('click',e=>{
       runEvents(ev,{onMark:mk=>{ const c=$('#countin'); c.hidden=false; $('#countinNum').textContent=mk.count; }});
       break;
     }
-    case 'game': startGame(a.dataset.id); break;
+    case 'game': S.pane='lesson'; startGame(a.dataset.id); break;
     case 'end-game': S.game=null; S.big={...S.big,interactive:false,hideName:false}; drawBig(); renderLearn(); break;
     case 'g-answer': { const g=S.game; if(!g||g.state!=='ask') break; g.picked=m; finishAnswer(m===g.target); if(g.id==='reader'||g.id==='ear') showNote(g.target); break; }
     case 'g-check': { const g=S.game; finishAnswer(holesEqual(g.holes,BY_MIDI.get(g.target).holes)); break; }
