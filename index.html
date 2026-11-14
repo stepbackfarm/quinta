@@ -154,6 +154,9 @@ body.metro-open .view{padding-bottom:140px}
 .hist .hday{font-weight:700;margin-top:10px;color:var(--muted)}
 .hist li:not(.hday){display:grid;grid-template-columns:80px 1fr;gap:10px}
 .htime{color:var(--muted)}
+.lbtn .lt small.due{color:var(--carmine);font-weight:700}
+.lbtn.isdue{border-color:var(--carmine)}
+.lbtn .num svg{width:16px;height:16px}
 .tappad{display:block;width:min(100%,420px);min-height:150px;border-radius:28px;border:3px solid var(--accent);background:var(--card);color:var(--accent);font-size:34px;font-weight:700;touch-action:manipulation;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
 .tappad:not(:disabled){background:var(--accent);color:var(--accent-ink)}
 .tappad.hit{background:color-mix(in srgb,var(--accent) 70%,var(--card))}
@@ -818,6 +821,20 @@ function gradeTaps(expected,taps,spb){
   const extra=taps.filter((x,j)=>!used.has(j) && x-bias>=lo && x-bias<=hi).length;
   return {res,ok,early,late,miss,extra,bias,right: miss===0 && extra<=1 && ok>=Math.ceil(0.75*n)};
 }
+// ---- Unit tests: when to check again (pure, testable) ----
+// runs: [{t,score,total}] oldest first. 8 in 10 passes. After each pass in a row the next check waits
+// longer (1 week, 2 weeks, then a month), so passing again later shows the ideas have stuck.
+// A failed test can be taken again right away.
+const CHECK_DAYS=[7,14,30];
+function testStatus(runs,now,passPct){
+  passPct=passPct??0.8;
+  if(!runs||!runs.length) return {state:'new',streak:0};
+  let streak=0; for(const r of runs){ if(r.score/r.total>=passPct) streak++; else streak=0; }
+  const last=runs[runs.length-1];
+  if(streak===0) return {state:'retry',streak:0,last};
+  const days=CHECK_DAYS[Math.min(streak,CHECK_DAYS.length)-1], due=last.t+days*864e5;
+  return {state: now>=due?'check':'ok', streak, days, due, last};
+}
 // ---- Recording: turn heard notes into written notes (pure, testable) ----
 // Guess the beat from the gaps between note starts: most notes in a simple tune are one beat long.
 function estimateBeat(onsets){
@@ -930,7 +947,7 @@ const S = {
   big:{holes:[1,1,1,0,0,0], m:69, interactive:false},
   explore:{holes:[1,1,1,0,0,0], m:69},
   mySongs:[],
-  progress:{lessons:{}, games:{}, stars:{}, items:{}, log:[], days:{}},
+  progress:{lessons:{}, games:{}, stars:{}, items:{}, log:[], days:{}, tests:{}},
   player:{song:null, idx:-1, mode:null, tempo:80, guide:false},
   make:{tab:'photo', base:null, shift:0, title:'', origin:'typed', photo:null, recSrc:'mine', bpm:null, recStatus:''},
   compose:{notes:[], dur:1, meter:[4,4], title:'My tune'},
@@ -1939,6 +1956,28 @@ const UNITS=[
   ]},
 ];
 const LESSONS=UNITS.flatMap(u=>u.lessons.map(l=>({...l,unit:u.id,unitTitle:u.title})));
+// Unit tests: 10 harder questions mixed from a whole unit (no letters, small steps, faster and trickier rhythms).
+// Units 4 and 5 have one lesson each, so the Big review covers them along with everything else.
+const UNIT_TESTS=[
+  {id:'t1',unit:'u1',title:'Unit 1 test',spec:[['hilo',3,{min:2,max:3}],['ear',2],['fingx',2],['mc',3,['l1-count','l1-names','l1-twice','hl-holes','hl-lowest','hl-highest','l6-allcov','l6-allopen','l6-up','l6-step','l6-skip']]]},
+  {id:'t2',unit:'u2',title:'Unit 2 test',spec:[['name',3],['phr',3],['ls',2],['fingx',2]]},
+  {id:'t3',unit:'u3',title:'Unit 3 test',spec:[['tap',2,['tap:4:0.5-0.5-1-0.5-0.5-1-2-2@80','tap:4:1.5-0.5-1-1-1.5-0.5-2@72','tap:4:1-r1-0.5-0.5-1-2-r1-1@76','tap:3:2-1-1.5-0.5-1-3@84']],['hear',2,['c','e','f']],['miss',2],['build',1,['3','4']],['rest',1],['beats',1,['1.5','3','0.5']],['bar',1]]},
+  {id:'t9',unit:null,title:'Big review',spec:[['name',2],['phr',1],['fingx',1],['hilo',1,{min:2,max:3}],['tap',1,['tap:4:1-0.5-0.5-1-1-2-2@80','tap:4:1.5-0.5-1-1-1.5-0.5-2@72']],['hear',1,['c','e','f']],['miss',1],['mc',2,['l2-home','l2-mid','l2-fifth','l7-trans','l7-half','l7-why']]]},
+];
+function testById(id){ return UNIT_TESTS.find(t=>'test:'+t.id===id||t.id===id); }
+function testLessons(T){ return T.unit ? LESSONS.filter(l=>l.unit===T.unit) : LESSONS; }
+function testOpen(T){ return S.settings.openAll || testLessons(T).every(l=>lessonDone(l.id)); }
+function testRec(T){ return S.progress.tests[T.id]||{runs:[],best:0}; }
+// Which lesson teaches the idea behind a question, so a missed test question can point back to it.
+function keyLesson(key){
+  const type=key.slice(0,key.indexOf(':')), arg=key.slice(key.indexOf(':')+1);
+  if(type==='mc'){ const id=arg.split('-')[0]; return LESSONS.some(l=>l.id===id)?id:null; }
+  if(type==='tap') return /1\.5/.test(arg)?'lsr':/r/.test(arg.split('@')[0].split(':')[1])?'rs':/0\.5/.test(arg)?'rh':'tb';
+  if(type==='hear'){ const g=arg[0]; return g==='e'||g==='f'?'lsr':g==='d'?'rs':'rh'; }
+  return ({hilo:'hl',ear:'hl',tempo:'bt',ls:'ls',name:'ls',phr:'ls',fing:'l6',fingx:'fm',beats:'l4',bar:'l5',rest:'rs',miss:'bb',build:'bb'})[type]||null;
+}
+const TEST_ICON=`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 3h6v3H9zM9 13l2 2 4-4"/></svg>`;
+function waitWords(days){ return days===7?'a week':days===14?'two weeks':'a month'; }
 const GAMES=[
   {id:'reader',title:'Note Reader',about:'Read a note on the staff and tap its name.'},
   {id:'finger',title:'Finger Match',about:'See a note, then cover the right holes on the big flute.'},
@@ -2020,7 +2059,9 @@ function quizKeys(spec){
   const notes=FLUTE.map(f=>f.m);
   for(const [type,n,opt] of spec){
     if(type==='mc') add(opt.map(id=>'mc:'+id),n);
-    else if(type==='hilo'){ const pool=[]; for(const a of notes) for(const b of notes) if(a!==b && Math.abs(a-b)>=3) pool.push(`hilo:${a}-${b}`); add(pool,n); }
+    else if(type==='hilo'){ const lo=(opt&&opt.min)||3, hi=(opt&&opt.max)||99, pool=[]; for(const a of notes) for(const b of notes){ const g=Math.abs(a-b); if(a!==b && g>=lo && g<=hi) pool.push(`hilo:${a}-${b}`); } add(pool,n); }
+    else if(type==='ear') add(notes.map(m=>'ear:'+m),n);
+    else if(type==='phr'){ const pool=[]; for(let i=0;i<40;i++){ const a=[pick(notes)]; while(a.length<3){ const m=pick(notes); if(m!==a[a.length-1]) a.push(m); } pool.push('phr:'+a.join('-')); } add(pool,n); }
     else if(type==='ls') add(Object.keys(LINE_SPOT).map(m=>'ls:'+m),n);
     else if(type==='name') add(notes.map(m=>'name:'+m),n);
     else if(type==='fing'||type==='fingx') add(notes.map(m=>type+':'+m),n);
@@ -2056,6 +2097,17 @@ function makeQ(key,w){
     q.prompt='Listen. Which note did you hear?'; q.play=()=>playNow(m,1); q.answer=String(m); q.notes=true;
     q.choices=FLUTE.map(f=>({v:String(f.m),html:`<span style="color:${colorFor(f.m)}">${f.name}</span><small>${highLow(f)||'&nbsp;'}</small>`}));
     q.explain=`It was ${noteName(m)}.`;
+  } else if(type==='phr'){
+    const ms=arg.split('-').map(Number); if(ms.length<2||!ms.every(m=>BY_MIDI.has(m))) return null;
+    const notes=ms.map((m,i)=>({m,d:1,bar:i===ms.length-1}));
+    q.visual=renderScore(notes,[4,4],Math.min(w,360),{fing:false,letters:false,time:false,tap:false});
+    const lab=a=>a.map(m=>capFirst(noteName(m))).join(', '), idx=m=>FLUTE.findIndex(f=>f.m===m);
+    // wrong choices change one note to its neighbor, the mistake a reader is most likely to make
+    const opts=new Set([lab(ms)]);
+    for(let g=0;opts.size<3 && g<60;g++){ const a=ms.slice(), k=Math.floor(Math.random()*a.length), j=idx(a[k])+(Math.random()<0.5?-1:1); if(j<0||j>=FLUTE.length) continue; a[k]=FLUTE[j].m; opts.add(lab(a)); }
+    q.prompt='Read these notes from left to right. Which names are right?'; q.answer=lab(ms); q.text=true;
+    q.choices=shuffle([...opts]).map(c=>({v:c,html:esc(c)}));
+    q.explain=`The notes are ${lab(ms)}.`;
   } else if(type==='tempo'){
     const bpm=+arg; if(!bpm) return null;
     q.prompt='Listen to the beat. Is it fast or slow?';
@@ -2141,6 +2193,7 @@ function keyLabel(key){
   if(type==='fing'||type==='fingx') return `Fingers for ${noteName(+arg)}`;
   if(type==='ear') return `Hearing ${noteName(+arg)}`;
   if(type==='hilo') return 'Hearing if a tune goes up or down';
+  if(type==='phr') return 'Reading a group of notes';
   if(type==='tempo') return 'Hearing a fast or slow beat';
   if(type==='beats') return `How long a ${DUR_NAMES[+arg]||'note'} lasts`;
   if(type==='bar') return 'Counting the beats in a bar';
@@ -2154,10 +2207,15 @@ function keyLabel(key){
 
 // ---------- Records: every quiz, game and practice is saved ----------
 function dayKey(d){ d=d||new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
-function normProgress(p){ p=p||{}; return {lessons:p.lessons||{},games:p.games||{},stars:p.stars||{},items:p.items||{},log:Array.isArray(p.log)?p.log:[],days:p.days||{}}; }
+function normProgress(p){ p=p||{}; return {lessons:p.lessons||{},games:p.games||{},stars:p.stars||{},items:p.items||{},log:Array.isArray(p.log)?p.log:[],days:p.days||{},tests:p.tests||{}}; }
 function mergeProgress(a,b){
   a=normProgress(a); b=normProgress(b);
-  const out={lessons:{...a.lessons,...b.lessons},games:{...a.games},stars:{...a.stars},items:{...a.items},days:{...a.days},log:[]};
+  const out={lessons:{...a.lessons,...b.lessons},games:{...a.games},stars:{...a.stars},items:{...a.items},days:{...a.days},log:[],tests:{}};
+  for(const id of new Set([...Object.keys(a.tests),...Object.keys(b.tests)])){
+    const runs=[], seenT=new Set();
+    for(const r of [...((a.tests[id]||{}).runs||[]),...((b.tests[id]||{}).runs||[])]) if(!seenT.has(r.t)){ seenT.add(r.t); runs.push(r); }
+    runs.sort((x,y)=>x.t-y.t); out.tests[id]={runs,best:runs.reduce((m,r)=>Math.max(m,r.score),0)};
+  }
   for(const [k,v] of Object.entries(b.games)) out.games[k]=Math.max(out.games[k]??-1,v);
   for(const [k,v] of Object.entries(b.stars)) out.stars[k]=Math.max(out.stars[k]||0,v);
   for(const [k,v] of Object.entries(b.items)){ const o=out.items[k]; if(!o || (v.r+v.w)>(o.r+o.w)) out.items[k]=v; }
@@ -2315,7 +2373,7 @@ function lessonBody(id){
 function renderLearn(){
   const v=$('#view-learn');
   const P=S.progress, st=streak(), weak=weakKeys();
-  if(!LESSONS.some(l=>l.id===S.lesson)) S.lesson=nextLessonId();
+  if(!LESSONS.some(l=>l.id===S.lesson) && !testById(S.lesson)) S.lesson=nextLessonId();
   const cur=id=>!S.game && S.pane==='lesson' && S.lesson===id;
   v.innerHTML=`<div class="learn">
     <nav class="lnav" aria-label="Lessons and games">
@@ -2328,7 +2386,9 @@ function renderLearn(){
         return `<button class="lbtn ${open?'':'locked'}" data-act="lesson" data-id="${l.id}" aria-current="${cur(l.id)}">
           <span class="num ${done?'done':''}">${done?'✓':open?k+1:LOCK_ICON}</span>
           <span class="lt">${esc(l.title)}${stars?starsHTML(stars):''}${open?'':'<span class="vh"> (locked)</span>'}</span></button>`;
-      }).join('')).join('')}
+      }).join('')+UNIT_TESTS.filter(T=>T.unit===u.id).map(testButton).join('')).join('')}
+      <h3>Big review</h3>
+      ${UNIT_TESTS.filter(T=>!T.unit).map(testButton).join('')}
       <h3>Practice</h3>
       ${weak.length?`<button class="lbtn" data-act="review" aria-current="${!!(S.quiz&&S.quiz.review&&S.pane==='lesson'&&!S.game)}"><span class="num">↻</span><span class="lt">Practice my mistakes<small class="hint">${weak.length} to fix</small></span></button>`:''}
       ${GAMES.map(g=>`<button class="lbtn" data-act="game" data-id="${g.id}" aria-current="${S.game&&S.game.id===g.id}"><span class="num">${P.games[g.id]!=null?P.games[g.id]:'★'}</span><span class="lt">${g.title}</span></button>`).join('')}
@@ -2340,6 +2400,38 @@ function renderLearn(){
   </div>`;
   renderLessonPane();
 }
+function testButton(T){
+  const open=testOpen(T), rec=testRec(T), st=testStatus(rec.runs,Date.now()), best=rec.runs.length?Math.max(...rec.runs.map(r=>r.score)):0;
+  const stars=best>=10?3:best>=8?2:best>=6?1:0;
+  const note= !open ? '' : st.state==='check' ? '<small class="due">Time to check it\'s sticking</small>' : st.state==='retry' ? '<small class="hint">Try again</small>' : st.state==='new' ? '<small class="hint">10 harder questions</small>' : '';
+  const cur=!S.game && S.pane==='lesson' && S.lesson==='test:'+T.id;
+  return `<button class="lbtn ${open?'':'locked'} ${st.state==='check'&&open?'isdue':''}" data-act="lesson" data-id="test:${T.id}" aria-current="${cur}">
+    <span class="num ${st.state==='ok'||st.state==='check'?'done':''}">${open?TEST_ICON:LOCK_ICON}</span>
+    <span class="lt">${esc(T.title)}${stars?starsHTML(stars):''}${note}${open?'':'<span class="vh"> (locked)</span>'}</span></button>`;
+}
+function renderTestPane(el,T){
+  const ui=UNITS.findIndex(u=>u.id===T.unit), lessons=testLessons(T), open=testOpen(T), rec=testRec(T), st=testStatus(rec.runs,Date.now());
+  const what= T.unit ? `Unit ${ui+1}: ${esc(UNITS[ui].title)}` : 'Every unit';
+  if(!open){
+    const left=lessons.filter(l=>!lessonDone(l.id));
+    el.innerHTML=`<p class="hint">${what}</p><h2>${LOCK_ICON.replace('<svg','<svg class="biglock"')} ${esc(T.title)}</h2>
+      <p>This test opens when you have passed every lesson ${T.unit?'in this unit':'in the course'}. Still to go:</p>
+      <div class="row">${left.slice(0,6).map(l=>`<button class="btn" data-act="lesson" data-id="${l.id}">${esc(l.title)}</button>`).join('')}${left.length>6?`<span class="hint">and ${left.length-6} more</span>`:''}</div>`;
+    return;
+  }
+  const status = st.state==='new' ? ''
+    : st.state==='retry' ? `<p class="feedback wrong">Last time: ${st.last.score} of ${st.last.total}. Practice the lessons it pointed to, then try again.</p>`
+    : st.state==='check' ? `<p class="feedback right">Time for a check! You passed on ${fmtDate(st.last.t)}. Take it again to see if it stuck.</p>`
+    : `<p class="feedback right">Passed with ${st.last.score} of ${st.last.total} on ${fmtDate(st.last.t)}. Next check: ${fmtDate(st.due)}.</p>`;
+  el.innerHTML=`<p class="hint">${what} · 10 questions</p>
+    <h2>${esc(T.title)}</h2>
+    <p>This test mixes questions from ${T.unit?'the whole unit':'the whole course'}, and some are harder than the lesson quizzes. There's no warm-up. Get 8 out of 10 right to pass.</p>
+    <p>After you pass, the test comes back in a week, then in two weeks, then in a month. Passing it again later shows the ideas have stuck.</p>
+    ${status}
+    <div class="row"><button class="btn primary" data-act="quiz-start">${st.state==='new'?'Start the test':'Take the test'}</button></div>
+    ${T.unit?`<div class="stack" style="gap:6px"><h3>What it covers</h3><div class="row">${lessons.map(l=>`<button class="btn small" data-act="lesson" data-id="${l.id}">${esc(l.title)}</button>`).join('')}</div></div>`:''}
+    <details class="grown"><summary>For grown-ups</summary><p>Unit tests use harder versions of the lesson questions: neighboring notes to tell apart by ear, notes to read without letter names, and faster or trickier rhythms. A score that holds up after a week, two weeks and a month means the idea is in long-term memory. Questions he misses go into Practice my mistakes, and the results screen points to the lessons to go back to.</p></details>`;
+}
 function nextLessonId(){ const k=LESSONS.findIndex((l,i)=>lessonOpen(i)&&!lessonDone(l.id)); return LESSONS[k<0?0:k].id; }
 function renderLessonPane(){
   const el=$('#lessonPane'); if(!el) return;
@@ -2347,6 +2439,7 @@ function renderLessonPane(){
   if(S.game){ renderGame(); return; }
   if(S.pane==='grownups'){ renderGrownups(el); return; }
   if(S.quiz && (S.quiz.free || S.quiz.lesson===S.lesson)){ renderQuiz(el); return; }
+  const T=testById(S.lesson); if(T){ renderTestPane(el,T); return; }
   const id=S.lesson, k=LESSONS.findIndex(l=>l.id===id), L=LESSONS[k];
   if(!lessonOpen(k)){
     el.innerHTML=`<h2>${LOCK_ICON.replace('<svg','<svg class="biglock"')} ${esc(L.title)}</h2>
@@ -2381,7 +2474,7 @@ function startQuiz(lessonId,keys,mode){
   playQ();
 }
 function playQ(){ const z=S.quiz; const q=z&&!z.done&&z.qs[z.k]; if(q&&q.play&&!q.tap&&!q.build) setTimeout(()=>{ if(S.quiz===z&&z.qs[z.k]===q) q.play(); },250); }
-function quizTitle(z){ const L=(LESSONS.find(l=>l.id===z.lesson)||{}).title; return z.review?'Practice my mistakes':z.mode==='tapper'?'Rhythm Tapper':z.mode==='warmup'?'Warm-up: '+L:'Quiz: '+L; }
+function quizTitle(z){ const L=(LESSONS.find(l=>l.id===z.lesson)||{}).title; if(z.mode==='test') return testById(z.lesson).title; return z.review?'Practice my mistakes':z.mode==='tapper'?'Rhythm Tapper':z.mode==='warmup'?'Warm-up: '+L:'Quiz: '+L; }
 function renderQuiz(el){
   const z=S.quiz, n=z.qs.length;
   const dots=`<div class="qdots" aria-hidden="true">${z.qs.map((_,i)=>`<i class="${i<z.res.length?(z.res[i]?'r':'w'):i===z.k&&!z.done?'c':''}"></i>`).join('')}</div>`;
@@ -2391,24 +2484,28 @@ function renderQuiz(el){
     const k=LESSONS.findIndex(l=>l.id===z.lesson), next=LESSONS[k+1];
     const passed=pct>=0.8;
     const fixed=z.review?z.qs.filter(q=>{ const it=S.progress.items[q.key]; return it&&it.s>=2; }).length:0, left=z.review?n-fixed:0;
-    const msg= z.mode==='warmup' ? 'Warm-up done. Ready for the quiz?'
+    const tst=z.mode==='test'?testStatus(testRec(testById(z.lesson)).runs,Date.now()):null;
+    const msg= z.mode==='test' ? (passed ? (score===n?'Perfect score! ':'You passed! ')+`Take it again in ${waitWords(tst.days)} to check it's sticking.` : 'Not yet. You need 8 right to pass. Practice the lessons below, then try again.')
+      : z.mode==='warmup' ? 'Warm-up done. Ready for the quiz?'
       : z.mode==='tapper' ? (score===n?'Every rhythm right! You\'re a rhythm star.':score>=6?'Great tapping!':'Keep practicing. Try Warm up in the rhythm lessons.')
       : z.review ? (left===0?'All fixed! They won\'t come back unless you miss them again.'
         : (fixed?`You fixed ${fixed}. `:'')+`A mistake is fixed when you get it right twice in a row, so ${left===1?'1 question':left+' questions'} will come back for one more try.`)
       : stars===3 ? 'Perfect! Every answer right.' : passed ? 'You passed!'+(next?' The next lesson is open.':'') : 'Almost there. Read the lesson again, then try the quiz. You need 4 right to pass.';
     const missed=z.qs.filter((q,i)=>!z.res[i]);
     el.innerHTML=head+`<div class="quizend">
-        ${z.mode?'':starsHTML(stars,true)}
+        ${z.mode&&z.mode!=='test'?'':starsHTML(stars,true)}
         <h2 style="font-size:40px">${score} out of ${n}</h2>
         <p>${msg}${z.newBest?' <strong>New best!</strong>':''}</p>
       </div>
-      ${missed.length&&!z.mode?`<div class="stack" style="gap:6px"><h3>To practice</h3><ul class="missed">${missed.filter(q=>q.explain&&!q.tap&&!q.build&&!q.rhythms).map(q=>`<li>${esc(q.explain)}</li>`).join('')}${missed.some(q=>q.tap)?'<li>Tapping rhythms: use Warm up first, and count out loud.</li>':''}${missed.some(q=>q.build)?'<li>Building bars: add up the beats before you tap Check.</li>':''}${missed.some(q=>q.rhythms)?'<li>Hearing rhythms: say "ta" and "ti-ti" along with the sound.</li>':''}</ul></div>`:''}
+      ${z.mode==='test'&&missed.length?(()=>{ const ids=[...new Set(missed.map(q=>keyLesson(q.key)).filter(Boolean))]; return ids.length?`<div class="stack" style="gap:6px"><h3>Lessons to go back to</h3><div class="row">${ids.map(id=>`<button class="btn" data-act="lesson" data-id="${id}">${esc(LESSONS.find(l=>l.id===id).title)}</button>`).join('')}</div></div>`:''; })():''}
+      ${missed.length&&(!z.mode||z.mode==='test')?`<div class="stack" style="gap:6px"><h3>To practice</h3><ul class="missed">${missed.filter(q=>q.explain&&!q.tap&&!q.build&&!q.rhythms).map(q=>`<li>${esc(q.explain)}</li>`).join('')}${missed.some(q=>q.tap)?'<li>Tapping rhythms: use Warm up first, and count out loud.</li>':''}${missed.some(q=>q.build)?'<li>Building bars: add up the beats before you tap Check.</li>':''}${missed.some(q=>q.rhythms)?'<li>Hearing rhythms: say "ta" and "ti-ti" along with the sound.</li>':''}</ul></div>`:''}
       <div class="row">
         ${z.mode==='warmup' ? `<button class="btn primary" data-act="quiz-start">Take the quiz</button><button class="btn" data-act="warmup">Warm up again</button>`
         : z.mode==='tapper' ? `<button class="btn primary" data-act="tapper">Play again</button>`
         : z.review ? (weakKeys().length?`<button class="btn primary" data-act="review">Practice more mistakes</button>`:'')
+        : z.mode==='test' ? `<button class="btn ${passed?'':'primary'}" data-act="quiz-start">Try again</button>`+(weakKeys().length&&!passed?`<button class="btn" data-act="review">Practice my mistakes</button>`:'')
         : (passed && next ? `<button class="btn primary" data-act="lesson" data-id="${next.id}">Next lesson ›</button>`:'')+`<button class="btn ${passed&&next?'':'primary'}" data-act="quiz-start">Try again</button>`}
-        <button class="btn" data-act="quiz-close">${z.free?'Back to lessons':'Back to the lesson'}</button>
+        <button class="btn" data-act="quiz-close">${z.free?'Back to lessons':z.mode==='test'?'Back to the test page':'Back to the lesson'}</button>
       </div>`;
     return;
   }
@@ -2449,6 +2546,13 @@ function finishQuiz(){
   if(z.mode==='tapper'){
     if(P.games.tapper==null || score>P.games.tapper) P.games.tapper=score;
     logActivity({kind:'game',id:'tapper',title:'Rhythm Tapper',score,total:n,ms:Date.now()-z.t0,missed:z.qs.filter((q,i)=>!z.res[i]).map(q=>q.key)});
+    renderLearn(); return;
+  }
+  if(z.mode==='test'){
+    const T=testById(z.lesson), rec=P.tests[T.id]||(P.tests[T.id]={runs:[],best:0});
+    if(rec.runs.length && score>rec.best) z.newBest=true;
+    rec.best=Math.max(rec.best||0,score); rec.runs.push({t:Date.now(),score,total:n});
+    logActivity({kind:'test',id:T.id,title:T.title,score,total:n,stars,ms:Date.now()-z.t0,missed:z.qs.filter((q,i)=>!z.res[i]).map(q=>q.key)});
     renderLearn(); return;
   }
   if(!z.review){
@@ -2558,6 +2662,7 @@ function logText(e){
   switch(e.kind){
     case 'quiz': return [`Quiz: ${e.title}`,`${e.score} of ${e.total}${e.stars!=null?' · '+e.stars+(e.stars===1?' star':' stars'):''}.${missed}`];
     case 'review': return ['Practice my mistakes',`${e.score} of ${e.total}.${missed}`];
+    case 'test': return [e.title,`${e.score} of ${e.total}${e.score/e.total>=0.8?', passed':', not passed yet'}.${missed}`];
     case 'game': return [`Game: ${e.title}`,`${e.score} of ${e.total}.${missed}`];
     case 'follow': return [`Follow me: ${e.title}`,`${e.score} of ${e.total} notes right the first time.`+(e.timing?` Timing: ${e.timing.ok} of ${e.timing.total} on the beat.`:'')];
     case 'scored': return [`Play in time: ${e.title}`,`${e.score} of ${e.total} notes right.`];
@@ -2599,7 +2704,15 @@ function renderGrownups(el){
       <div class="tile"><b>${week}</b>minutes this week</div>
       <div class="tile"><b>${passed} of ${LESSONS.length}</b>lessons passed</div>
       <div class="tile"><b>${totalStars()} of ${LESSONS.length*3}</b>stars</div>
+      <div class="tile"><b>${UNIT_TESTS.filter(T=>testRec(T).runs.some(r=>r.score/r.total>=0.8)).length} of ${UNIT_TESTS.length}</b>unit tests passed</div>
     </div>
+    <div class="stack" style="gap:8px"><h3>Unit tests: is it sticking?</h3>
+      <p class="hint">Unit tests are harder and mix a whole unit. After a pass they come back in a week, then two weeks, then a month. Passing again later means he remembers it.</p>
+      <div class="tablewrap"><table class="gtable"><thead><tr><th>Test</th><th>Best</th><th>Scores, oldest first</th><th>Last taken</th><th>Next check</th></tr></thead><tbody>
+      ${UNIT_TESTS.map(T=>{ const rec=testRec(T), st=testStatus(rec.runs,Date.now());
+        const next= st.state==='new' ? (testOpen(T)?'Ready now':'Not open yet') : st.state==='retry' ? 'Now (try again)' : st.state==='check' ? '<strong>Due now</strong>' : fmtDate(st.due);
+        return `<tr><td>${esc(T.title)}</td><td>${rec.runs.length?Math.max(...rec.runs.map(r=>r.score))+' of 10':'–'}</td><td>${rec.runs.length?rec.runs.slice(-8).map(r=>r.score).join(', '):'–'}</td><td>${st.last?fmtDate(st.last.t):'–'}</td><td>${next}</td></tr>`; }).join('')}
+      </tbody></table></div></div>
     <div class="stack" style="gap:6px"><h3>Minutes of practice, last 14 days</h3>${minutesChart()}
       <p class="hint">A minute counts when the app is tapped or hears a note in that minute.</p></div>
     <div class="stack" style="gap:8px"><h3>Needs more practice</h3>
@@ -3213,7 +3326,7 @@ document.addEventListener('click',e=>{
     case 'c-clear': S.compose.notes=[]; composeToMake(); renderMakePanel(); break;
     case 'go-write': S.make.tab='write'; go('make'); composeToMake(); break;
     case 'lesson': S.game=null; S.pane='lesson'; if(S.quiz && (S.quiz.done || S.quiz.lesson!==a.dataset.id || S.quiz.free)) S.quiz=null; S.lesson=a.dataset.id; S.big={...S.big,interactive:false,hideName:false}; drawBig(); renderLearn(); break;
-    case 'quiz-start': { const L=LESSONS.find(l=>l.id===S.lesson); if(L) startQuiz(L.id,quizKeys(L.quiz)); break; }
+    case 'quiz-start': { const T=testById(S.lesson); if(T){ if(testOpen(T)) startQuiz('test:'+T.id,quizKeys(T.spec),'test'); break; } const L=LESSONS.find(l=>l.id===S.lesson); if(L) startQuiz(L.id,quizKeys(L.quiz)); break; }
     case 'q-answer': answerQ(+a.dataset.i); break;
     case 'q-next': nextQ(); break;
     case 'tap-start': tapStart(); break;

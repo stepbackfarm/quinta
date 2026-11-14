@@ -1,6 +1,6 @@
 # Quinta Flute Practice
 
-An iPad app that teaches a child to play the Choroi Quinta pentatonic flute and to read music. It has a fingering chart, a song library with finger diagrams under every note, a converter that turns sheet music into finger patterns, a recorder that writes down tunes he plays, a music-theory course (units of short lessons, each with a graded quiz, plus stars, streaks and a grown-ups records page), three practice games, a metronome, and microphone listening that checks the notes he plays (and, optionally, his timing).
+An iPad app that teaches a child to play the Choroi Quinta pentatonic flute and to read music. It has a fingering chart, a song library with finger diagrams under every note, a converter that turns sheet music into finger patterns, a recorder that writes down tunes he plays, a music-theory course (units of short lessons, each with a graded quiz, harder unit tests that come back on a schedule, plus stars, streaks and a grown-ups records page), three practice games, a metronome, and microphone listening that checks the notes he plays (and, optionally, his timing).
 
 The user is David, a parent building this for his son. The son is the end user, so everything on screen has to work for a child: big touch targets, plain words, no reading walls.
 
@@ -11,7 +11,9 @@ The user is David, a parent building this for his son. The son is the end user, 
 - `tests/timing.test.js`: Node tests for the Follow me timing grade.
 - `tests/record.test.js`: Node tests for turning a recording into notes.
 - `tests/rhythm.test.js`: Node tests for rhythm tapping grades, and a check that every tap rhythm fills whole bars.
+- `tests/review.test.js`: Node tests for the unit-test re-check schedule.
 - `tests/apikey.e2e.js`: Playwright test of reading photos with a Claude API key, against a stand-in for Claude's API (needs internet for the SDK from the CDN).
+- `tests/unittest.e2e.js`: Playwright test of the unit tests.
 - `tests/course.e2e.js`, `tests/rhythm.e2e.js`, `tests/player.e2e.js`: Playwright tests of the Learn course, the rhythm lessons and the song player while playing (need a local server; see each file's header).
 - `CLAUDE.md`: this file.
 
@@ -77,6 +79,7 @@ The Claude-hosted copy is republished from a claude.ai chat. After changing `ind
     - `beatStarts`, `timingTol`, `judgeGap`, `followTiming`: the optional Follow me timing grade.
     - `scoreTimed`: the "Play in time" scoring.
   - Rhythm (pure parts): `rhythmItems` (strings like `1-1-r1-0.5-0.5`, `r` = rest), `parseTapArg` (`4:1-1-2@72` = beats in a bar, rhythm, speed), `gradeTaps`.
+  - Unit tests (pure part): `testStatus(runs, now)` gives `new`, `retry` (last run failed), `ok` (passed, next check not due) or `check` (due), from passes in a row and `CHECK_DAYS` (7, 14, then 30 days).
   - Recording (pure parts): `estimateBeat`, `splitLen`, `barify`, `transcribe`. `NoteTracker`'s `on` events carry `start`, the time the pitch first appeared.
 - **Song book**:
   - `BOOK`: warm-ups, original tunes and traditional songs, all exactly on the flute.
@@ -101,7 +104,7 @@ The Claude-hosted copy is republished from a claude.ai chat. After changing `ind
   - `body.player-busy` hides the floating metronome bar so it never covers the music.
 - **Storage `Store`**:
   - `localStorage` keys: `quinta.settings`, `quinta.songs`, `quinta.progress`.
-  - `S.progress` is `{lessons, games, stars, items, log, days}` (`normProgress`). On connecting to `db`, `mergeProgress` combines this device's records with the account's.
+  - `S.progress` is `{lessons, games, stars, items, log, days, tests}` (`normProgress`). On connecting to `db`, `mergeProgress` combines this device's records with the account's.
   - With `db`: songs are at `data/users/<uid>/library/songs/<id>` and progress at `data/users/<uid>/progress`.
   - Songs are packed as `[m, d, flags]`. A recorded song also keeps `bpm`, and `openSong()` sets the player's speed from it.
 - **Views**: Flute (chart), Songs (list and player), Make (photo, typed ABC, write your own, record, then the fit and transpose result with Save, Listen and Practice), Learn (the course, practice games and the grown-ups page).
@@ -113,6 +116,11 @@ The Claude-hosted copy is republished from a claude.ai chat. After changing `ind
   - Tap questions (`renderTapQ`, `tapStart`, `tapHit`, `tapGrade`): Start plays a count-in bar, then soft clicks while the notes light up. Taps come from pointerdown on the big pad, Space or Enter, or (with the mic on) each new flute note. Expected times include `AC.outputLatency`. `gradeTaps` matches each written note to the nearest tap within half the shortest gap (40 ms at most), first removes a steady lag or lead of up to 70 ms, and counts ±`max(80 ms, min(150 ms, 30% of the shortest gap))` as on time. The answer is right with no missed notes, at most 1 extra tap, and 75% on time. Results color the notes and label them early, late or missed.
   - Bar builder (`renderBuildQ`, `buildCheck`): add notes and rests from `BUILD_PARTS`, Undo, Hear it, Check. Right when the bar adds up exactly.
   - Quiz modes (`startQuiz(lesson, keys, mode)`): a lesson quiz, `review` (Practice my mistakes), `tapper` (the Rhythm Tapper game: `TAPPER_KEYS`, 8 rhythms from easy to hard, best saved as `games.tapper`), or `warmup`.
+  - Unit tests (`UNIT_TESTS`): `t1`–`t3` after Units 1–3, and `t9` "Big review" after everything (Units 4 and 5 have one lesson each). Each is 10 questions from a harder spec: small-step `hilo` (`{min:2,max:3}`), `ear` from all seven notes, `fingx`, `phr:<m-m-m>` (read three notes; wrong choices move one note to its neighbor), harder tap rhythms, and the `c`/`e`/`f` hear sets.
+    - A test opens once every lesson it covers is passed (`testOpen`). It shows in the lesson menu with id `test:<id>`, and `renderTestPane()` is its intro page. It runs as quiz mode `test`.
+    - 8 of 10 passes. Results go in `S.progress.tests[id] = {runs:[{t,score,total}], best}`, and each test is logged as `kind:'test'`. The menu shows "Time to check it's sticking" when a check is due.
+    - A failed test lists the lessons behind the missed questions (`keyLesson(key)`) and offers Practice my mistakes. It doesn't lock anything.
+    - The grown-ups page has a "Unit tests: is it sticking?" table: best, scores oldest first, last taken, next check.
   - Grading: 5/5 = 3 stars, 4/5 = 2 stars and passes, 3/5 = 1 star. Passing opens the next lesson (`lessonOpen`; the grown-ups page can open all). `S.quiz` holds a running quiz; `S.pane` is `lesson` or `grownups`.
   - Mistakes: `noteItem(key,right)` keeps right, wrong and current-run counts per key. A key is a weak spot once missed, until it's answered right twice in a row (`weakKeys`). "Practice my mistakes" quizzes up to 5 of them. The games feed this too (`name:`, `fingx:`, `ear:`).
   - Records: `logActivity()` saves every quiz, review, game, Follow me, Play in time, lesson exercise and saved recording (newest 400 kept). `Activity.touch()` counts active minutes per day (any tap, or a note heard). `streak()` counts days in a row with a logged activity or at least 5 active minutes.
@@ -205,7 +213,7 @@ The Claude-hosted copy is republished from a claude.ai chat. After changing `ind
 
 ## Testing
 
-The timing, recording, rhythm, course, player and API key tests are checked in. These are the checks that were used; recreate the others under `tests/` when needed.
+The timing, recording, rhythm, unit-test, course, player and API key tests are checked in. These are the checks that were used; recreate the others under `tests/` when needed.
 
 1. **Core logic** (`node tests/core.test.js index.html`):
    - Extract the code between the CORE markers and run it in a Node `vm`.
@@ -229,9 +237,10 @@ The timing, recording, rhythm, course, player and API key tests are checked in. 
    - WAVs come from a small numpy script; for Play in time, put 3.15 s of silence before the first note at 80 bpm.
 6. **Rhythm** (`node tests/rhythm.test.js`, and `tests/rhythm.e2e.js` in the browser): grades for on time, steady lag, wobble, missed notes, extra taps, rests, eighths and long-short rhythms. The browser test sends real pointer taps timed against the audio clock, and checks the bar builder, the other rhythm questions, warm-up, Rhythm Tapper and phone width.
 7. **Song player** (`tests/player.e2e.js`): during Play along and Listen, every new line lands 10 px under the slim bar with the next line fully visible (iPad and phone), the floating metronome is hidden, and pull-down, the arrow and Hide controls work.
-8. **Course** (`tests/course.e2e.js`): builds every possible quiz question, passes and fails quizzes, checks locks, Practice my mistakes and a game, the grown-ups page, reload, and phone width.
-9. **API key** (`tests/apikey.e2e.js`): no key, a malformed key, a wrong key, Test, reading a photo (checks the model, effort, fallback, browser header and image sent), a declined photo, Stop, a revoked key, Remove, and that the key stays out of the saved settings.
-10. **Visual check:** take one Playwright screenshot at 1180×820, and check that the page is no wider than 390 px at phone width. To render the real fonts offline, route the Google Fonts requests to local copies of the TTF files.
+8. **Unit tests** (`node tests/review.test.js`, and `tests/unittest.e2e.js` in the browser): the re-check schedule, every possible test question and its lesson, locks, a pass setting the next check, a check coming due, a failed check pointing back to lessons, the grown-ups table, reload, and phone width.
+9. **Course** (`tests/course.e2e.js`): builds every possible quiz question, passes and fails quizzes, checks locks, Practice my mistakes and a game, the grown-ups page, reload, and phone width.
+10. **API key** (`tests/apikey.e2e.js`): no key, a malformed key, a wrong key, Test, reading a photo (checks the model, effort, fallback, browser header and image sent), a declined photo, Stop, a revoked key, Remove, and that the key stays out of the saved settings.
+11. **Visual check:** take one Playwright screenshot at 1180×820, and check that the page is no wider than 390 px at phone width. To render the real fonts offline, route the Google Fonts requests to local copies of the TTF files.
 
 ## Open items
 

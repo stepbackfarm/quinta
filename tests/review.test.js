@@ -1,0 +1,24 @@
+// Tests the unit-test re-check schedule. Run: node tests/review.test.js [index.html]
+const fs=require('fs'), vm=require('vm'), path=require('path');
+const file=process.argv[2]||path.join(__dirname,'..','index.html');
+const src=fs.readFileSync(file,'utf8');
+const core=src.slice(src.indexOf('// ==CORE START=='),src.indexOf('// ==CORE END=='));
+const ctx={}; vm.createContext(ctx);
+vm.runInContext(core+'\nthis.api={testStatus};',ctx);
+const {testStatus}=ctx.api;
+let fails=0;
+const eq=(name,got,want)=>{ const ok=JSON.stringify(got)===JSON.stringify(want); if(!ok){ fails++; console.log('FAIL',name,'\n  got ',JSON.stringify(got),'\n  want',JSON.stringify(want)); } else console.log('ok  ',name); };
+const D=864e5, t0=Date.UTC(2026,10,1);
+const run=(day,score)=>({t:t0+day*D,score,total:10});
+const pick=s=>({state:s.state,streak:s.streak,days:s.days});
+eq('never taken',pick(testStatus([],t0)),{state:'new',streak:0});
+eq('failed: try again right away',pick(testStatus([run(0,6)],t0+D)),{state:'retry',streak:0});
+eq('8 of 10 passes; next check in a week',pick(testStatus([run(0,8)],t0+3*D)),{state:'ok',streak:1,days:7});
+eq('a week later it is due',testStatus([run(0,8)],t0+7*D).state,'check');
+eq('second pass in a row: two weeks',pick(testStatus([run(0,9),run(8,9)],t0+10*D)),{state:'ok',streak:2,days:14});
+eq('third pass and after: a month',pick(testStatus([run(0,9),run(8,9),run(23,10),run(55,9)],t0+60*D)),{state:'ok',streak:4,days:30});
+eq('a failed check starts over',pick(testStatus([run(0,9),run(8,9),run(23,5)],t0+24*D)),{state:'retry',streak:0});
+eq('passing after a fail: a week again',pick(testStatus([run(0,9),run(8,5),run(9,8)],t0+10*D)),{state:'ok',streak:1,days:7});
+eq('due date',testStatus([run(0,8)],t0).due,t0+7*D);
+console.log(fails?`\n${fails} failed`:'\nAll review tests passed');
+process.exit(fails?1:0);
