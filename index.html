@@ -97,6 +97,9 @@ p{margin:0}
 .metro .mnote{flex-basis:100%;font-size:14px;color:var(--muted);text-align:center}
 body.metro-open .view{padding-bottom:140px}
 .score .tm{font-size:13px;font-weight:700;fill:var(--ink)}
+.recnotes{display:flex;flex-wrap:wrap;gap:4px 10px;font-weight:700;font-size:26px;min-height:40px;align-items:center}
+.rectime{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}
+.recdot{width:14px;height:14px;border-radius:50%;background:var(--carmine);display:inline-block}
 .hear{width:100%;padding:8px 6px 2px;border-top:1px solid var(--line);text-align:center;font-size:14px;line-height:1.3}
 .hear strong{font-size:20px}
 .meter{position:relative;height:10px;border-radius:5px;background:var(--line);margin:6px 8px 4px}
@@ -624,7 +627,7 @@ class NoteTracker{
     if(fr.t-this.candT>=this.onsetMs && this.stable!==fr.m){
       if(this.stable!==null) ev.push({type:'off',m:this.stable,t:fr.t});
       this.stable=fr.m; this.stableT=this.candT; this.peak=fr.rms;
-      ev.push({type:'on',m:fr.m,cents:fr.cents,t:fr.t});
+      ev.push({type:'on',m:fr.m,cents:fr.cents,t:fr.t,start:this.stableT});
     }
     return ev;
   }
@@ -687,6 +690,60 @@ function scoreTimed(notes,starts,spb,frames,lat){
   });
   return {res,ok,total};
 }
+// ---- Recording: turn heard notes into written notes (pure, testable) ----
+// Guess the beat from the gaps between note starts: most notes in a simple tune are one beat long.
+function estimateBeat(onsets){
+  const iois=[]; for(let i=1;i<onsets.length;i++){ const d=onsets[i]-onsets[i-1]; if(d>0.1) iois.push(d); }
+  if(iois.length<2) return 0.75;
+  const s=iois.slice().sort((a,b)=>a-b); let spb=s[Math.floor(s.length/2)];
+  while(spb<0.4) spb*=2;
+  while(spb>1.2) spb/=2;
+  // refine: the beat that best explains every gap as a whole number of half beats
+  for(let it=0;it<3;it++){ const u=spb/2; let num=0,den=0; for(const x of iois){ const k=Math.max(1,Math.round(x/u)); num+=x*k; den+=k*k; } spb=2*num/den; }
+  const bpm=Math.max(40,Math.min(160,Math.round(60/spb)));
+  return 60/bpm;
+}
+const REC_PIECES=[4,3,2,1.5,1,0.5];
+function splitLen(d){ const out=[]; let r=d; while(r>1e-6){ const p=REC_PIECES.find(v=>v<=r+1e-6)||0.5; out.push(p); r-=p; } return out; }
+// Lay notes and rests out in bars. A note that crosses a bar line, or has a length with no single note shape, becomes tied notes.
+function barify(items,per){
+  const out=[]; let acc=0;
+  for(const it of items){
+    let rem=it.d; const first=out.length;
+    while(rem>1e-6){
+      const take=Math.min(rem,per-acc);
+      for(const p of splitLen(take)) out.push({m:it.m,d:p,bar:false,tie:false});
+      rem-=take; acc+=take;
+      if(acc>=per-1e-6){ out[out.length-1].bar=true; acc=0; }
+    }
+    if(it.m!=null) for(let k=first;k<out.length-1;k++) out[k].tie=true;
+  }
+  if(out.length) out[out.length-1].bar=true;
+  return out;
+}
+// evs: [{m,start,end}] in seconds. o.spb: seconds per beat (guessed if missing). o.phase: the time of any metronome beat.
+// Note starts snap to half beats. A short gap between notes is just a breath; a gap of a beat or more becomes a rest.
+function transcribe(evs,o){
+  o=o||{}; const g=0.5, lat=o.lat??0.06, per=o.beats||4;
+  evs=evs.filter(e=>e.end-e.start>=0.07).sort((a,b)=>a.start-b.start);
+  if(!evs.length) return {notes:[],bpm:0,meter:[per,4]};
+  const spb=o.spb||estimateBeat(evs.map(e=>e.start));
+  const s0=evs[0].start-lat;
+  const b0= o.phase!=null ? o.phase+Math.round((s0-o.phase)/spb)*spb : s0;
+  const q=t=>Math.round((t-lat-b0)/(spb*g))*g;
+  const off=q(evs[0].start);
+  const pos=evs.map(e=>q(e.start)-off);
+  for(let i=1;i<pos.length;i++) pos[i]=Math.max(pos[i],pos[i-1]+g);
+  const items=[];
+  evs.forEach((e,i)=>{
+    const end=Math.max(q(e.end)-off,pos[i]+g);
+    if(i===evs.length-1){ items.push({m:e.m,d:end-pos[i]}); return; }
+    const next=pos[i+1], gap=next-end;
+    if(gap>=1-1e-6){ items.push({m:e.m,d:end-pos[i]}); items.push({m:null,d:gap}); }
+    else items.push({m:e.m,d:next-pos[i]});
+  });
+  return {notes:barify(items,per),bpm:Math.round(60/spb),meter:[per,4]};
+}
 // ==CORE END==
 
 // ---------- Song book ----------
@@ -741,13 +798,13 @@ C C G G | A A G2 | F F E E | D D C2 |]`;
 // ---------- State ----------
 const S = {
   view:'flute',
-  settings:{tuning:440, letters:true, colors:true, appearance:'auto', awake:true, metroBpm:80, metroBeats:4, followTiming:false},
+  settings:{tuning:440, letters:true, colors:true, appearance:'auto', awake:true, metroBpm:80, metroBeats:4, followTiming:false, recMetro:true},
   big:{holes:[1,1,1,0,0,0], m:69, interactive:false},
   explore:{holes:[1,1,1,0,0,0], m:69},
   mySongs:[],
   progress:{lessons:{}, games:{}},
   player:{song:null, idx:-1, mode:null, tempo:80, guide:false},
-  make:{tab:'photo', base:null, shift:0, title:'', origin:'typed', photo:null},
+  make:{tab:'photo', base:null, shift:0, title:'', origin:'typed', photo:null, recSrc:'mine', bpm:null, recStatus:''},
   compose:{notes:[], dur:1, meter:[4,4], title:'My tune'},
   lesson:'l1',
   game:null,
@@ -875,6 +932,7 @@ const Metro={
     if(this.next<AC.currentTime) this.next=AC.currentTime+0.05; // the page was asleep; start again from now
     while(this.next<AC.currentTime+0.12){
       const b=this.beat%per, t=this.next;
+      this.lastBeat=t;
       if(!this.held){ click(t,b===0&&per>1,this.bus,0.28); setTimeout(()=>flashBeat(b),Math.max(0,(t-AC.currentTime)*1000)); }
       this.beat=(b+1)%per; this.next+=spb;
     }
@@ -892,7 +950,8 @@ function syncMetro(){
   $('#metroBpm').textContent=S.settings.metroBpm;
   const dots=$('#mdots');
   if(dots.childElementCount!==per) dots.innerHTML=Array.from({length:per},(_,k)=>`<i${k===0&&per>1?' class="acc"':''}></i>`).join('');
-  bar.querySelectorAll('[data-act="metro-beats"]').forEach(b=>b.setAttribute('aria-pressed',+b.dataset.v===per));
+  document.querySelectorAll('[data-act="metro-beats"]').forEach(b=>b.setAttribute('aria-pressed',+b.dataset.v===per));
+  const rb=$('#recBpm'); if(rb) rb.textContent=S.settings.metroBpm;
   $('#metroNote').hidden=!Metro.held;
 }
 function playNow(m,dur){ const ac=audio(); if(!ac){ toast('This browser cannot play sound.'); return; } tone(m,ac.currentTime+0.02,dur||0.8,0.32); }
@@ -1128,8 +1187,8 @@ function staffSnippet(m){
 }
 
 // ---------- Storage ----------
-function packSong(s){ return {id:s.id,title:s.title,meter:s.meter,origin:s.origin||'',created:s.created||Date.now(),notes:s.notes.map(n=>[n.m,n.d,(n.bar?1:0)|(n.tie?2:0)])}; }
-function unpackSong(o){ if(!o||!Array.isArray(o.notes)) return null; return {id:String(o.id),title:String(o.title||'Untitled'),meter:Array.isArray(o.meter)?o.meter:[4,4],origin:o.origin||'',created:o.created||0,notes:o.notes.map(a=>({m:a[0]==null?null:+a[0],d:+a[1],bar:!!(a[2]&1),tie:!!(a[2]&2)}))}; }
+function packSong(s){ return {id:s.id,title:s.title,meter:s.meter,origin:s.origin||'',created:s.created||Date.now(),...(s.bpm?{bpm:s.bpm}:{}),notes:s.notes.map(n=>[n.m,n.d,(n.bar?1:0)|(n.tie?2:0)])}; }
+function unpackSong(o){ if(!o||!Array.isArray(o.notes)) return null; return {id:String(o.id),title:String(o.title||'Untitled'),meter:Array.isArray(o.meter)?o.meter:[4,4],origin:o.origin||'',created:o.created||0,bpm:+o.bpm||undefined,notes:o.notes.map(a=>({m:a[0]==null?null:+a[0],d:+a[1],bar:!!(a[2]&1),tie:!!(a[2]&2)}))}; }
 const Store={
   mode:'memory', db:null, uid:null, progT:0,
   ls(){ try{ const k='__q'; localStorage.setItem(k,'1'); localStorage.removeItem(k); return localStorage; }catch(e){ return null; } },
@@ -1246,6 +1305,7 @@ function findSong(id){ return LIBRARY.find(s=>s.id===id) || S.mySongs.find(s=>s.
 function openSong(song){
   stopRun(true);
   S.player.song=song; S.player.idx=-1; S.player.mode=null;
+  if(song.bpm) S.player.tempo=Math.max(40,Math.min(140,Math.round(song.bpm/5)*5));
   go('songs');
 }
 function renderPlayer(){
@@ -1372,11 +1432,12 @@ function renderMake(){
   const v=$('#view-make'); const mk=S.make;
   v.innerHTML=`<div class="stack">
     <div class="stack" style="gap:8px"><h1>Turn music into finger patterns</h1>
-    <p class="lede">Bring in a song from a photo, from typed notes, or write your own. The app moves the song to fit your flute and shows the fingers under every note.</p></div>
+    <p class="lede">Bring in a song from a photo, from typed notes, from a recording, or write your own. The app moves the song to fit your flute and shows the fingers under every note.</p></div>
     <div class="seg" role="tablist" aria-label="How to bring in a song">
       <button role="tab" data-act="make-tab" data-tab="photo" aria-selected="${mk.tab==='photo'}">Snap a photo</button>
       <button role="tab" data-act="make-tab" data-tab="type" aria-selected="${mk.tab==='type'}">Type notes</button>
       <button role="tab" data-act="make-tab" data-tab="write" aria-selected="${mk.tab==='write'}">Write my own</button>
+      <button role="tab" data-act="make-tab" data-tab="record" aria-selected="${mk.tab==='record'}">Record</button>
     </div>
     <div id="mkPanel"></div>
     <div id="mkResult"></div>
@@ -1401,6 +1462,8 @@ function renderMakePanel(){
     </div>`;
     $('#photoInput').addEventListener('change',onPhotoPicked);
     checkPhotoSupport();
+  } else if(mk.tab==='record'){
+    renderRecordPanel(el);
   } else if(mk.tab==='type'){
     el.innerHTML=`<div class="panel stack" style="gap:12px">
       <h2>Type the notes</h2>
@@ -1535,7 +1598,7 @@ function loadIntoMake(parsed,origin,noScroll){
   const mk=S.make;
   const best=bestShift(parsed.notes);
   mk.base={meter:parsed.meter,notes:parsed.notes};
-  mk.shift=best.shift; mk.title=parsed.title||mk.title||'Untitled'; mk.origin=origin;
+  mk.shift=best.shift; mk.title=parsed.title||mk.title||'Untitled'; mk.origin=origin; mk.bpm=parsed.bpm||null;
   renderMakeResult();
   if(noScroll) return;
   const r=$('#mkResult'); r && r.scrollIntoView({block:'start',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
@@ -1544,7 +1607,7 @@ function composeToMake(){
   const c=S.compose;
   if(!c.notes.length){ S.make.base=null; renderMakeResult(); return; }
   S.make.base={meter:c.meter,notes:autoBars(c.notes,c.meter)};
-  S.make.shift=0; S.make.title=c.title||'My tune'; S.make.origin='written';
+  S.make.shift=0; S.make.title=c.title||'My tune'; S.make.origin='written'; S.make.bpm=null;
   renderMakeResult();
 }
 function renderMakeResult(){
@@ -1561,7 +1624,7 @@ function renderMakeResult(){
   else if(rep.half) note='Grey notes need a half-covered hole (F♯ or C). Every other note uses normal fingers.';
   else note='Every note uses normal fingers.';
   if(mk.origin!=='written' && mk.shift!==0) note+=' The song was moved so it sits on your flute. It still sounds like the same tune.';
-  mk.preview={id:'__preview',title:mk.title,meter:mk.base.meter,notes,origin:mk.origin==='photo'?'From a photo':mk.origin==='written'?'Written by me':'Typed in'};
+  mk.preview={id:'__preview',title:mk.title,meter:mk.base.meter,notes,bpm:mk.bpm||undefined,origin:mk.origin==='photo'?'From a photo':mk.origin==='written'?'Written by me':mk.origin==='recorded'?'Recorded':'Typed in'};
   el.innerHTML=`<div class="panel stack" style="gap:14px">
     <div class="row" style="justify-content:space-between">
       <div class="row"><label for="mkTitle" class="hint">Name</label><input type="text" id="mkTitle" value="${esc(mk.title)}" maxlength="80"></div>
@@ -1577,6 +1640,7 @@ function renderMakeResult(){
     <div class="score" id="mkScore"></div>
     <div class="row">
       <button class="btn primary" data-act="save-made">Save to My Songs</button>
+      <button class="btn" data-act="listen-made">▶ Listen</button>
       <button class="btn" data-act="practice-made">Practice it now</button>
     </div>
   </div>`;
@@ -1815,7 +1879,7 @@ document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==
 const MIC_ICON=`<svg width="20" height="20" style="vertical-align:-4px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/></svg>`;
 const STANDALONE_URL=''; // the app's own web address, where the microphone works (filled in once it is hosted)
 const Mic={
-  on:false, stream:null, src:null, an:null, sink:null, buf:null, raf:0, tracker:new NoteTracker(), ignoreUntil:0, nf:0.003,
+  on:false, wide:false, stream:null, src:null, an:null, sink:null, buf:null, raf:0, tracker:new NoteTracker(), ignoreUntil:0, nf:0.003,
   async start(){
     const ac=audio();
     if(!ac) throw {code:'noaudio'};
@@ -1847,8 +1911,10 @@ const Mic={
       if(now>=this.ignoreUntil){
         const gate=Math.max(0.004,this.nf*3);
         if(rms>gate){
-          const p=yinPitch(this.buf,AC.sampleRate);
-          if(p && p.clarity>0.8){ const w=writtenFromFreq(p.freq,S.settings.tuning); if(w.m>=60 && w.m<=78) fr={t:fr.t,voiced:true,rms,m:w.m,cents:w.cents}; }
+          // "wide" listens past the Quinta's range, for recording other flutes; the Make page then moves the tune to fit
+          const p=this.wide ? yinPitch(this.buf,AC.sampleRate,370,2500) : yinPitch(this.buf,AC.sampleRate);
+          const lo=this.wide?53:60, hi=this.wide?98:78;
+          if(p && p.clarity>0.8){ const w=writtenFromFreq(p.freq,S.settings.tuning); if(w.m>=lo && w.m<=hi) fr={t:fr.t,voiced:true,rms,m:w.m,cents:w.cents}; }
         }
       } else fr.rms=0;
       if(!fr.voiced && now>=this.ignoreUntil) this.nf=this.nf*0.98+Math.min(rms,0.05)*0.02;
@@ -1872,6 +1938,7 @@ function onMicFrame(fr,ev){
   }
   for(const e of ev){
     if(FS) FS.core.feed(e);
+    if(REC) recFeed(e);
     if(e.type==='on' && S.view==='flute' && BY_MIDI.has(e.m)){
       S.explore={holes:BY_MIDI.get(e.m).holes.slice(),m:e.m}; S.big={holes:S.explore.holes.slice(),m:e.m,interactive:true}; drawBig();
       document.querySelectorAll('.ncard').forEach(c=>c.setAttribute('aria-pressed',+c.dataset.m===e.m));
@@ -1914,6 +1981,7 @@ async function ensureMic(){
   }catch(e){ micHelp(e&&e.code); return false; }
 }
 function stopMic(){
+  if(REC) finishRecording();
   stopFollow(); SC=null;
   Mic.stop();
   $('#micBtn').classList.remove('live'); $('#micBtn').setAttribute('aria-pressed','false'); $('#micBtn').setAttribute('aria-label','Listen with the microphone');
@@ -2022,6 +2090,99 @@ async function startScored(){
     },
   });
 }
+// ---------- Recording a tune ----------
+let REC=null;
+function renderRecordPanel(el){
+  const mk=S.make, on=!!REC, other=mk.recSrc==='other', per=S.settings.metroBeats;
+  el.innerHTML=`<div class="panel stack" style="gap:16px">
+    <h2>Record a tune</h2>
+    <p class="lede">Play a tune and the app writes it down as notes, so you can play it again later. Play one note at a time. Start each note with your tongue, like saying "too", so repeated notes count.</p>
+    <div class="opt">
+      <span class="lab">Who is playing?</span>
+      <div class="row" role="group" aria-label="Who is playing">
+        <button class="len" data-act="rec-src" data-v="mine" aria-pressed="${!other}" ${on?'disabled':''}>My Quinta</button>
+        <button class="len" data-act="rec-src" data-v="other" aria-pressed="${other}" ${on?'disabled':''}>Another flute or a recording</button>
+      </div>
+      ${other?'<span class="hint">The app listens for higher and lower notes too, then moves the tune to fit your Quinta. Play the recording near the iPad. It works best with one flute playing alone.</span>':''}
+    </div>
+    <div class="opt">
+      <label class="check"><input type="checkbox" id="recMetro" ${S.settings.recMetro?'checked':''} ${on?'disabled':''}> Play with the metronome</label>
+      <span class="hint">${S.settings.recMetro?'Note lengths come out right more often with the clicks. Start on any click.':'The app will guess the beat from your playing.'}</span>
+      ${S.settings.recMetro?`<div class="row">
+        <button class="icon-btn" data-act="metro-bpm" data-d="-5" aria-label="Slower" style="font-size:26px;font-weight:700">−</button>
+        <span><strong id="recBpm">${S.settings.metroBpm}</strong> beats a minute</span>
+        <button class="icon-btn" data-act="metro-bpm" data-d="5" aria-label="Faster" style="font-size:26px;font-weight:700">+</button>
+      </div>`:''}
+    </div>
+    <div class="opt">
+      <span class="lab">Beats in a bar</span>
+      <div class="row" role="group" aria-label="Beats in a bar">${[2,3,4].map(v=>`<button class="len" data-act="metro-beats" data-v="${v}" aria-pressed="${per===v}">${v}</button>`).join('')}</div>
+    </div>
+    <div class="row">
+      ${on?`<button class="btn primary" data-act="rec-stop">■ Stop and write it down</button><span class="recdot" aria-hidden="true"></span><span class="rectime" id="recTime">0:00</span>`
+          :`<button class="btn primary" data-act="rec-start">${MIC_ICON} Record</button>`}
+    </div>
+    <div class="recnotes" id="recNotes" aria-live="polite">${on?recNotesHTML():''}</div>
+    <p class="status ${mk.recStatus&&!on?'err':''}" id="recStatus">${on?'Listening. Play your tune, then tap Stop.':esc(mk.recStatus||'')}</p>
+  </div>`;
+  $('#recMetro').addEventListener('change',e=>{ S.settings.recMetro=e.target.checked; Store.saveSettings(); renderMakePanel(); });
+}
+function recNotesHTML(){
+  if(!REC||!REC.evs.length) return '';
+  const last=REC.evs.slice(-24);
+  return (REC.evs.length>24?'<span class="hint">…</span>':'')+last.map(e=>`<span style="color:${colorFor(e.m)}">${esc(noteLabel(e.m))}</span>`).join('');
+}
+async function startRecording(){
+  if(!await ensureMic()) return;
+  stopRun(true); stopFollow(); SC=null;
+  const useMetro=S.settings.recMetro;
+  if(useMetro && !Metro.on && Metro.start()) Metro.auto=true;
+  Mic.wide=S.make.recSrc==='other';
+  S.make.recStatus='';
+  REC={evs:[],open:null,t0:AC.currentTime,metro:useMetro&&Metro.on,timer:setInterval(recTick,250)};
+  renderMakePanel();
+}
+function recFeed(e){
+  if(e.type==='on'){
+    if(REC.open && REC.open.end==null) REC.open.end=e.start/1000;
+    REC.open={m:e.m,start:e.start/1000,end:null}; REC.evs.push(REC.open);
+    const el=$('#recNotes'); if(el) el.innerHTML=recNotesHTML();
+  } else if(e.type==='off' && REC.open && REC.open.m===e.m && REC.open.end==null){ REC.open.end=e.t/1000; }
+}
+function recTick(){
+  if(!REC) return;
+  const sec=Math.floor(AC.currentTime-REC.t0), el=$('#recTime');
+  if(el) el.textContent=Math.floor(sec/60)+':'+String(sec%60).padStart(2,'0');
+  if(sec>=300){ finishRecording(); toast('Recordings stop after 5 minutes. Here is what I heard.'); }
+}
+function finishRecording(){
+  if(!REC) return;
+  const r=REC; REC=null; clearInterval(r.timer); Mic.wide=false;
+  if(r.open && r.open.end==null) r.open.end=AC.currentTime;
+  const opt={beats:S.settings.metroBeats};
+  if(r.metro && Metro.lastBeat!=null){ opt.spb=60/S.settings.metroBpm; opt.phase=Metro.lastBeat; }
+  if(Metro.auto) Metro.stop();
+  const res=transcribe(r.evs,opt);
+  const mk=S.make;
+  if(!res.notes.some(n=>n.m!=null)){
+    mk.recStatus='I didn\'t hear any notes. Play a little louder or closer to the iPad, then try again.';
+  } else {
+    mk.recStatus='';
+    loadIntoMake({title:'My recording',meter:res.meter,notes:res.notes,bpm:res.bpm},'recorded');
+    toast('Here are your notes. Tap Listen to hear them, then save the song.');
+  }
+  if(S.view==='make' && mk.tab==='record') renderMakePanel();
+}
+function playNotes(notes,bpm){
+  const spb=60/bpm, ev=[]; let t=0;
+  notes.forEach((n,i)=>{
+    const tiedIn=i>0&&notes[i-1].tie&&notes[i-1].m===n.m;
+    if(n.m!=null && !tiedIn){ let d=n.d,j=i; while(notes[j].tie&&notes[j+1]&&notes[j+1].m===n.m){ j++; d+=notes[j].d; } ev.push({t,m:n.m,dur:d*spb*0.93,vol:0.32,mark:true}); }
+    t+=n.d*spb;
+  });
+  runEvents(ev,{onMark:mk=>showNote(mk.m)});
+}
+
 const EXERCISES={
   l1:{text:'Play all seven notes, from low D up to high E. The app waits for each one.', seq:[62,64,67,69,71,74,76]},
   l2:{text:'Play each pair of fifths: G then high D, low D then A, A then high E, low E then B.', seq:[67,74,62,69,69,76,64,71]},
@@ -2042,7 +2203,7 @@ function yourTurn(id){
 const VIEWS=['flute','songs','make','learn'];
 function go(view){
   if(!VIEWS.includes(view)) view='flute';
-  if(S.view!==view){ stopRun(true); stopFollow(); SC=null; }
+  if(S.view!==view){ stopRun(true); stopFollow(); SC=null; if(REC) finishRecording(); }
   if(S.view==='learn' && view!=='learn' && S.game){ S.game=null; }
   S.view=view;
   VIEWS.forEach(v=>{ $('#view-'+v).hidden = v!==view; $('#tab-'+v).setAttribute('aria-selected',v===view); });
@@ -2114,6 +2275,7 @@ document.addEventListener('click',e=>{
       break;
     }
     case 'make-tab': {
+      if(REC && a.dataset.tab!=='record') finishRecording();
       S.make.tab=a.dataset.tab; renderMake();
       if(a.dataset.tab==='write') composeToMake();
       else if(S.make.origin==='written' && S.make.source){ loadIntoMake(parseABC(S.make.source),'typed',true); }
@@ -2141,6 +2303,10 @@ document.addEventListener('click',e=>{
       Store.saveSong(song).then(ok=>{ if(ok) toast('Saved to My Songs.'); });
       break;
     }
+    case 'listen-made': { const mk=S.make; if(mk.preview) playNotes(mk.preview.notes,mk.bpm||S.player.tempo); break; }
+    case 'rec-start': startRecording(); break;
+    case 'rec-stop': finishRecording(); break;
+    case 'rec-src': S.make.recSrc=a.dataset.v; renderMakePanel(); break;
     case 'practice-made': { const mk=S.make; if(mk.preview) openSong({...mk.preview,title:mk.title||'Untitled'}); break; }
     case 'c-dur': S.compose.dur=+a.dataset.d; document.querySelectorAll('.len[data-act="c-dur"]').forEach(b=>b.setAttribute('aria-pressed',+b.dataset.d===S.compose.dur)); break;
     case 'c-add': {
