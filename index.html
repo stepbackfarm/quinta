@@ -262,7 +262,7 @@ body.player-busy .view{padding-bottom:48px}
 .seg button{min-height:46px;padding:0 18px;border:0;border-radius:999px;background:transparent;font-weight:700;color:var(--muted)}
 .seg button[aria-selected="true"]{background:var(--ink);color:var(--card)}
 textarea{width:100%;border:2px solid var(--line);border-radius:12px;padding:12px;background:var(--paper);font-family:ui-monospace,Menlo,monospace;font-size:16px;line-height:1.5}
-input[type=text],select{min-height:48px;border:2px solid var(--line);border-radius:12px;padding:0 12px;background:var(--paper)}
+input[type=text],input[type=password],select{min-height:48px;border:2px solid var(--line);border-radius:12px;padding:0 12px;background:var(--paper)}
 .photo-prev img{max-width:100%;max-height:280px;border-radius:12px;border:1px solid var(--line);display:block}
 .cheat{border-collapse:collapse;font-size:16px;margin-top:10px}
 .cheat td{padding:6px 12px 6px 0;vertical-align:top}
@@ -410,6 +410,18 @@ input[type=text],select{min-height:48px;border:2px solid var(--line);border-radi
     </div>
     <label class="check"><input type="checkbox" id="optLetters"> Show letter names under the notes</label>
     <label class="check"><input type="checkbox" id="optColors"> Give each note its own color</label>
+    <div class="opt" id="keyOpt">
+      <span class="lab">Reading photos with Claude</span>
+      <span class="hint" id="keyNote">The Snap a photo page uses Claude to read sheet music. In this copy of the app, a grown-up adds a Claude API key from console.anthropic.com. The key stays in this browser on this iPad and is never sent anywhere except to Claude. Each photo usually costs well under 20 cents. Set a monthly spend limit in the Console.</span>
+      <div class="row">
+        <label for="apiKey" class="vh">Claude API key</label>
+        <input type="password" id="apiKey" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="sk-ant-..." style="flex:1 1 220px;min-width:0">
+        <button class="btn" data-act="key-save">Save</button>
+        <button class="btn" data-act="key-test" id="keyTest">Test</button>
+        <button class="btn ghost" data-act="key-del" id="keyDel">Remove</button>
+      </div>
+      <p class="status" id="keyStatus" aria-live="polite"></p>
+    </div>
     <p class="hint" id="storeNote"></p>
     <p class="hint">No sound? Turn off Silent Mode on the iPad (swipe down to Control Center and tap the bell) and turn up the volume.</p>
     <div class="row"><button class="btn primary" data-act="settings-close">Done</button></div>
@@ -1670,10 +1682,11 @@ async function checkPhotoSupport(){
     if(window.claude && window.claude.use){ const sample=await window.claude.use('sample'); if(sample){ const lim=await sample.limits().catch(()=>null); ok=!!(lim&&lim.images); } }
   }catch(e){}
   if(S.make.tab!=='photo' || !st) return;
+  if(!ok && ClaudeKey.get()) ok=true;
   if(!ok){
     btn.disabled=true;
     st.className='status err';
-    st.textContent='Reading photos needs this page to be open in Claude. You can still type the notes on the Type notes tab.';
+    st.textContent=NEEDS_CLAUDE+' You can still type the notes on the Type notes tab.';
   }
 }
 function onPhotoPicked(e){
@@ -1712,20 +1725,92 @@ Then the notes, with these rules:
 - Rests are z with the same length rules. Use | for every bar line and - between tied notes.
 - Put each printed line of music on its own line.
 If the image contains no readable music, reply with exactly: NO MUSIC`;
+// ---- Claude API with a key (the standalone copy) ----
+// Inside Claude the page uses window.claude. Outside it, a grown-up can save an API key in Settings.
+// The official SDK is loaded from the CDN only when it's first needed, so the rest of the app works offline.
+const CLAUDE_SDK_URL='https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@1.3.0/+esm';
+const CLAUDE_MODEL='claude-opus-5-5';
+const NEEDS_CLAUDE='Reading photos needs Claude. A grown-up can add a Claude API key in Settings (the gear button).';
+const ClaudeKey={
+  k:'quinta.apikey',
+  get(){ try{ return localStorage.getItem(this.k)||''; }catch(e){ return ''; } },
+  set(v){ try{ localStorage.setItem(this.k,v); return true; }catch(e){ return false; } },
+  clear(){ try{ localStorage.removeItem(this.k); }catch(e){} },
+};
+let sdkLoad=null, SDK=null;
+function loadClaudeSDK(){
+  if(!sdkLoad) sdkLoad=import(CLAUDE_SDK_URL).then(m=>(SDK=m.default||m.Anthropic)).catch(e=>{ sdkLoad=null; throw {code:'sdk'}; });
+  return sdkLoad;
+}
+async function claudeClient(){
+  const Anthropic=await loadClaudeSDK();
+  // The key belongs to this family and is typed in on this device, so calling Claude straight from the browser is intended here.
+  return {Anthropic, client:new Anthropic({apiKey:ClaudeKey.get(),dangerouslyAllowBrowser:true})};
+}
+function blobToBase64(blob){
+  return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(String(r.result).split(',')[1]||''); r.onerror=()=>rej(r.error); r.readAsDataURL(blob); });
+}
+async function readWithKey(blob,signal){
+  const {client}=await claudeClient();
+  const type=['image/jpeg','image/png','image/gif','image/webp'].includes(blob.type)?blob.type:'image/jpeg';
+  const data=await blobToBase64(blob);
+  const msg=await client.beta.messages.stream({
+    model:CLAUDE_MODEL,
+    max_tokens:16000,
+    output_config:{effort:'high'},              // reading every note correctly matters more than speed
+    betas:['server-side-fallback-2026-07-01'],
+    fallbacks:'default',                        // if a safety check declines, the API retries on a fallback model
+    messages:[{role:'user',content:[{type:'image',source:{type:'base64',media_type:type,data}},{type:'text',text:PHOTO_PROMPT}]}],
+  },{signal}).finalMessage();
+  if(msg.stop_reason==='refusal') throw {code:'refused'};
+  return msg.content.filter(b=>b.type==='text').map(b=>b.text).join('\n');
+}
+function keyErrorText(e){
+  if(e&&e.code==='sdk') return 'Claude could not be reached. Check the internet connection, then try again.';
+  if(e&&e.code==='refused') return 'Claude would not read this photo. Try a different photo, or type the notes instead.';
+  const is=c=>!!(SDK && SDK[c] && e instanceof SDK[c]);
+  // most specific first: the abort and timeout classes extend the connection and API error classes
+  if(is('APIUserAbortError')) return '';
+  if(is('AuthenticationError')) return 'The Claude API key was not accepted. A grown-up can check it in Settings.';
+  if(is('PermissionDeniedError')) return 'This Claude API key is not allowed to do this. A grown-up can check it in Settings.';
+  if(is('RateLimitError')) return 'Claude is busy right now. Wait a minute and try again.';
+  if(is('APIConnectionError')) return 'Claude could not be reached. Check the internet connection, then try again.';
+  if(is('BadRequestError')) return 'Claude could not read this photo. Try a smaller or clearer photo. If it keeps happening, a grown-up can check the account\'s credits at console.anthropic.com.';
+  if(n==='InternalServerError'||(e&&e.status>=500)) return 'Claude had a problem. Try again in a minute.';
+  return 'Something went wrong while reading the photo. Try again.';
+}
+// Settings: save, test and remove the key. Test only looks up the model, which costs nothing.
+function syncKeyUI(){
+  const inClaude=!!(window.claude && window.claude.use);
+  const has=!!ClaudeKey.get();
+  $('#keyOpt').hidden=inClaude;
+  $('#apiKey').value=''; $('#apiKey').placeholder=has?'A key is saved (hidden)':'sk-ant-...';
+  $('#keyTest').disabled=!has; $('#keyDel').disabled=!has;
+}
+async function keyTest(){
+  const st=$('#keyStatus'); st.className='status'; st.textContent='Checking the key…';
+  try{
+    const {client}=await claudeClient();
+    await client.models.retrieve(CLAUDE_MODEL);
+    st.className='status'; st.textContent='The key works. Snap a photo is ready.';
+  }catch(e){ st.className='status err'; st.textContent=keyErrorText(e)||'The check was stopped.'; }
+}
+
 let readCtl=null;
 async function readPhoto(){
   const st=$('#photoStatus'); const mk=S.make;
   if(!mk.photo) return;
   let sample=null;
-  try{ sample=await window.claude.use('sample'); }catch(e){}
-  if(!sample){ st.className='status err'; st.textContent='Reading photos needs this page to be open in Claude.'; return; }
+  try{ if(window.claude && window.claude.use) sample=await window.claude.use('sample'); }catch(e){}
+  const useKey=!sample && !!ClaudeKey.get();
+  if(!sample && !useKey){ st.className='status err'; st.textContent=NEEDS_CLAUDE; return; }
   $('#readBtn').disabled=true; $('#stopRead').hidden=false;
   st.className='status'; st.textContent='Reading the music. This can take up to a minute.';
   readCtl=new AbortController();
   try{
     const blob=await shrinkImage(mk.photo);
-    const r=await sample(PHOTO_PROMPT,{images:[blob],modelTier:'complex',signal:readCtl.signal});
-    let text=(r.text||'').trim().replace(/^```[a-z]*\n?/i,'').replace(/```\s*$/,'').trim();
+    const raw = sample ? (await sample(PHOTO_PROMPT,{images:[blob],modelTier:'complex',signal:readCtl.signal})).text : await readWithKey(blob,readCtl.signal);
+    let text=(raw||'').trim().replace(/^```[a-z]*\n?/i,'').replace(/```\s*$/,'').trim();
     if(/^NO MUSIC/i.test(text)){ st.className='status err'; st.textContent='No music found in that photo. Try a closer, brighter photo of the notes.'; return; }
     if(!/^K:/m.test(text)) text='M:4/4\nL:1/4\nK:C\n'+text;
     const p=parseABC(text);
@@ -1737,6 +1822,7 @@ async function readPhoto(){
   }catch(e){
     const code=e&&e.code;
     st.className='status err';
+    if(useKey){ st.textContent=keyErrorText(e); return; }
     st.textContent = code==='cancelled' ? '' :
       code==='not_granted'||code==='sampling_disabled'||code==='images_unavailable' ? 'This page is not allowed to ask Claude to read photos. You can type the notes instead.' :
       code==='rate_limited' ? 'Too many requests right now. Wait a minute and try again.' :
@@ -2674,7 +2760,7 @@ document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==
 
 // ---------- Listening ----------
 const MIC_ICON=`<svg width="20" height="20" style="vertical-align:-4px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/></svg>`;
-const STANDALONE_URL=''; // the app's own web address, where the microphone works (filled in once it is hosted)
+const STANDALONE_URL='https://stepbackfarm.github.io/quinta/'; // the app's own web address (GitHub Pages), where the microphone works
 const Mic={
   on:false, wide:false, stream:null, src:null, an:null, sink:null, buf:null, raf:0, tracker:new NoteTracker(), ignoreUntil:0, nf:0.003,
   async start(){
@@ -3169,6 +3255,13 @@ document.addEventListener('click',e=>{
     case 'metro-bpm': Metro.set(S.settings.metroBpm+(+a.dataset.d)); break;
     case 'metro-beats': Metro.set(null,+a.dataset.v); break;
     case 'settings-open': openSettings(); break;
+    case 'key-save': { const v=$('#apiKey').value.trim(), st=$('#keyStatus');
+      if(!v){ st.className='status err'; st.textContent='Paste the key into the box first.'; break; }
+      if(!/^sk-ant-/.test(v)){ st.className='status err'; st.textContent='That doesn\'t look like a Claude API key. Keys start with sk-ant-.'; break; }
+      if(!ClaudeKey.set(v)){ st.className='status err'; st.textContent='This browser would not save the key. Check that private browsing is off.'; break; }
+      syncKeyUI(); keyTest(); if(S.view==='make' && S.make.tab==='photo') renderMakePanel(); break; }
+    case 'key-test': keyTest(); break;
+    case 'key-del': ClaudeKey.clear(); syncKeyUI(); $('#keyStatus').className='status'; $('#keyStatus').textContent='The key was removed from this iPad.'; if(S.view==='make' && S.make.tab==='photo') renderMakePanel(); break;
     case 'settings-close': $('#settings').hidden=true; $('#settingsBtn').focus(); break;
     case 'tuning': S.settings.tuning=+a.dataset.v; Store.saveSettings(); syncSettings(); playNow(69,0.8); break;
     case 'appearance': S.settings.appearance=a.dataset.v; Store.saveSettings(); applyAppearance(); syncSettings(); break;
@@ -3187,7 +3280,7 @@ document.addEventListener('keydown',e=>{
 });
 $('#settings').addEventListener('click',e=>{ if(e.target.id==='settings') $('#settings').hidden=true; });
 $('#micHelp').addEventListener('click',e=>{ if(e.target.id==='micHelp') $('#micHelp').hidden=true; });
-function openSettings(){ syncSettings(); updateStoreNote(); $('#settings').hidden=false; $('#appAuto').focus(); }
+function openSettings(){ syncSettings(); syncKeyUI(); $('#keyStatus').textContent=''; updateStoreNote(); $('#settings').hidden=false; $('#appAuto').focus(); }
 function syncSettings(){
   $('#tun440').setAttribute('aria-pressed',S.settings.tuning===440);
   $('#tun432').setAttribute('aria-pressed',S.settings.tuning===432);
