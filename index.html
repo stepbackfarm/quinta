@@ -72,16 +72,31 @@ h1{font-size:30px}
 h2{font-size:23px}
 h3{font-size:19px}
 p{margin:0}
-.app{display:grid;grid-template-rows:auto 1fr;height:100%}
+.app{display:grid;grid-template-rows:auto 1fr;grid-template-columns:minmax(0,1fr);height:100%}
 .top{display:flex;align-items:center;gap:14px;padding:10px 18px;background:var(--card);border-bottom:1px solid var(--line)}
 .brand{display:flex;align-items:center;gap:8px;font-weight:700;font-size:21px;white-space:nowrap}
 .brand svg{width:26px;height:26px}
-.tabs{display:flex;gap:4px;margin-right:auto;overflow-x:auto}
+.tabs{display:flex;gap:4px;margin-right:auto;overflow-x:auto;min-width:0}
+.top .icon-btn{flex:none}
 .tab{min-height:48px;padding:0 18px;border:0;border-radius:999px;background:transparent;font-weight:700;color:var(--muted);white-space:nowrap}
 .tab[aria-selected="true"]{background:var(--accent);color:var(--accent-ink)}
 .icon-btn{width:48px;height:48px;border-radius:50%;border:1px solid var(--line);background:var(--card);display:grid;place-items:center}
 .icon-btn svg{width:24px;height:24px}
 .icon-btn.live{background:var(--carmine);border-color:var(--carmine);color:#fff}
+.icon-btn.metro-on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+/* Metronome bar: shows while the metronome is on, on every page */
+.metro{position:fixed;right:16px;bottom:16px;z-index:25;display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;background:var(--card);border:1px solid var(--line);border-radius:18px;padding:10px 12px;box-shadow:0 6px 24px rgba(10,14,28,.18);max-width:calc(100vw - 32px)}
+.metro .mdots{display:flex;gap:6px;padding:0 4px}
+.metro .mdots i{width:14px;height:14px;border-radius:50%;background:var(--line);display:block}
+.metro .mdots i.acc{width:18px;height:18px}
+.metro .mdots i.lit{background:var(--accent)}
+.metro .bpm{display:flex;flex-direction:column;align-items:center;line-height:1.1;min-width:64px}
+.metro .bpm output{font-size:24px;font-weight:700}
+.metro .bpm span{font-size:13px;color:var(--muted)}
+.metro .icon-btn{font-size:26px;font-weight:700}
+.metro .mnote{flex-basis:100%;font-size:14px;color:var(--muted);text-align:center}
+body.metro-open .view{padding-bottom:140px}
+.score .tm{font-size:13px;font-weight:700;fill:var(--ink)}
 .hear{width:100%;padding:8px 6px 2px;border-top:1px solid var(--line);text-align:center;font-size:14px;line-height:1.3}
 .hear strong{font-size:20px}
 .meter{position:relative;height:10px;border-radius:5px;background:var(--line);margin:6px 8px 4px}
@@ -217,6 +232,7 @@ input[type=text],select{min-height:48px;border:2px solid var(--line);border-radi
   .body{grid-template-columns:86px 1fr}
   .brand span{display:none}
   .tab{padding:0 12px;font-size:16px}
+  .top{gap:8px;padding:8px 10px}
   .view{padding:18px 16px 40px}
   .cap .letter{font-size:32px}
   .cap .sub{font-size:12px}
@@ -238,6 +254,7 @@ input[type=text],select{min-height:48px;border:2px solid var(--line);border-radi
       <button class="tab" role="tab" data-act="nav" data-view="make" id="tab-make">Make</button>
       <button class="tab" role="tab" data-act="nav" data-view="learn" id="tab-learn">Learn</button>
     </nav>
+    <button class="icon-btn" data-act="metro" aria-label="Metronome" aria-pressed="false" id="metroBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.5 3h5l4 18h-13z"/><path d="M6.6 16h10.8"/><path d="M12 16l5-9"/></svg></button>
     <button class="icon-btn" data-act="mic" aria-label="Listen with the microphone" aria-pressed="false" id="micBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/></svg></button>
     <button class="icon-btn" data-act="settings-open" aria-label="Settings" id="settingsBtn">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/></svg>
@@ -263,6 +280,20 @@ input[type=text],select{min-height:48px;border:2px solid var(--line);border-radi
 </div>
 
 <div class="countin" id="countin" hidden><span id="countinNum">1</span></div>
+
+<div class="metro" id="metro" role="region" aria-label="Metronome" hidden>
+  <div class="mdots" id="mdots" aria-hidden="true"></div>
+  <button class="icon-btn" data-act="metro-bpm" data-d="-5" aria-label="Slower">−</button>
+  <div class="bpm"><output id="metroBpm">80</output><span>beats a minute</span></div>
+  <button class="icon-btn" data-act="metro-bpm" data-d="5" aria-label="Faster">+</button>
+  <div class="row" role="group" aria-label="Beats in each bar" style="gap:6px">
+    <button class="len" data-act="metro-beats" data-v="2" aria-label="2 beats in a bar">2</button>
+    <button class="len" data-act="metro-beats" data-v="3" aria-label="3 beats in a bar">3</button>
+    <button class="len" data-act="metro-beats" data-v="4" aria-label="4 beats in a bar">4</button>
+  </div>
+  <button class="btn" data-act="metro">■ Stop</button>
+  <p class="mnote" id="metroNote" hidden>Resting while the song plays its own beat.</p>
+</div>
 
 <div class="overlay" id="settings" hidden role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
   <div class="sheet">
@@ -603,13 +634,14 @@ function makeFollow(notes,cb){
   cb=cb||{};
   const targets=[];
   notes.forEach((n,i)=>{ if(n.m==null) return; if(i>0 && notes[i-1].tie && notes[i-1].m===n.m) return; targets.push(i); });
-  const st={k:0, targets, wrong:false, shown:null, result:{}, done:targets.length===0, wrongMs:cb.wrongMs||260, askedT:-1e9};
+  const st={k:0, targets, wrong:false, shown:null, result:{}, onsets:{}, done:targets.length===0, wrongMs:cb.wrongMs||260, askedT:-1e9};
   st.current=()=>targets[st.k];
   st.feed=(e)=>{
     if(st.done) return;
     const i=targets[st.k], want=notes[i].m;
     if(e.type==='on' && e.m===want){
       st.result[i]= st.wrong ? 'retry' : 'ok';
+      st.onsets[i]=e.t;
       let j=i; while(notes[j].tie && notes[j+1] && notes[j+1].m===want){ j++; st.result[j]=st.result[i]; }
       cb.onHit&&cb.onHit(i,st.result[i]);
       st.k++; st.wrong=false; st.shown=null; st.askedT=e.t;
@@ -621,6 +653,24 @@ function makeFollow(notes,cb){
   };
   st.summary=()=>{ const ok=targets.filter(i=>st.result[i]==='ok').length; return {ok,total:targets.length}; };
   return st;
+}
+// Timing for "Follow me": each note is judged by the time since the note before it, compared with
+// what the music asks for at this speed. Stopping to fix one note only makes that one note late;
+// the next note is timed from where the player really is. The first note starts the clock.
+function beatStarts(notes){ const out=[]; let b=0; for(const n of notes){ out.push(b); b+=n.d; } return out; }
+function timingTol(want,spb){ return Math.min(Math.max(0.12,0.22*spb),0.5*want); }
+function judgeGap(heard,want,spb){ const dev=heard-want, tol=timingTol(want,spb); return {grade: dev<-tol?'early':dev>tol?'late':'ok', dev}; }
+function followTiming(notes,targets,result,onsets,spb){
+  const pos=beatStarts(notes), res={}; let ok=0,early=0,late=0,total=0;
+  for(let k=1;k<targets.length;k++){
+    const i=targets[k], p=targets[k-1];
+    // notes that took a second try are already marked; timing only grades notes played right the first time
+    if(result[i]!=='ok' || onsets[i]==null || onsets[p]==null) continue;
+    const g=judgeGap((onsets[i]-onsets[p])/1000,(pos[i]-pos[p])*spb,spb);
+    res[i]=g.grade; total++;
+    if(g.grade==='ok') ok++; else if(g.grade==='early') early++; else late++;
+  }
+  return {res,ok,early,late,total};
 }
 // "Play in time": score each note from the frames heard during its time slot.
 function scoreTimed(notes,starts,spb,frames,lat){
@@ -691,7 +741,7 @@ C C G G | A A G2 | F F E E | D D C2 |]`;
 // ---------- State ----------
 const S = {
   view:'flute',
-  settings:{tuning:440, letters:true, colors:true, appearance:'auto', awake:true},
+  settings:{tuning:440, letters:true, colors:true, appearance:'auto', awake:true, metroBpm:80, metroBeats:4, followTiming:false},
   big:{holes:[1,1,1,0,0,0], m:69, interactive:false},
   explore:{holes:[1,1,1,0,0,0], m:69},
   mySongs:[],
@@ -793,6 +843,58 @@ function click(t0,accent,dest,vol){
   g.gain.setValueAtTime(0.0001,t0); g.gain.linearRampToValueAtTime(v,t0+0.003); g.gain.exponentialRampToValueAtTime(0.0001,t0+0.05);
   o.connect(g); g.connect(dest||master); o.start(t0); o.stop(t0+0.07);
 }
+// The metronome button in the top bar. It keeps clicking on every page until it is turned off.
+// Clicks are scheduled a little ahead on the audio clock so they stay steady.
+const Metro={
+  on:false, held:false, auto:false, timer:0, next:0, beat:0, bus:null,
+  start(){
+    if(this.on) return true;
+    const ac=audio(); if(!ac){ toast('This browser cannot play sound.'); return false; }
+    this.bus=ac.createGain(); this.bus.connect(master);
+    this.on=true; this.beat=0; this.next=ac.currentTime+0.1;
+    this.timer=setInterval(()=>this.tick(),25); this.tick();
+    syncMetro(); return true;
+  },
+  stop(){
+    this.auto=false;
+    if(!this.on) return;
+    this.on=false; clearInterval(this.timer);
+    try{ this.bus.gain.setValueAtTime(0,AC.currentTime); this.bus.disconnect(); }catch(e){}
+    this.bus=null; syncMetro();
+  },
+  set(bpm,beats){
+    if(bpm) S.settings.metroBpm=Math.max(40,Math.min(160,Math.round(bpm)));
+    if(beats) S.settings.metroBeats=Math.max(1,Math.min(6,Math.round(beats)));
+    Store.saveSettings(); syncMetro();
+  },
+  // A song that plays its own count-in and clicks rests the metronome so there aren't two beats at once.
+  hold(v){ this.held=v; syncMetro(); },
+  tick(){
+    if(!this.on||!AC) return;
+    const spb=60/S.settings.metroBpm, per=S.settings.metroBeats;
+    if(this.next<AC.currentTime) this.next=AC.currentTime+0.05; // the page was asleep; start again from now
+    while(this.next<AC.currentTime+0.12){
+      const b=this.beat%per, t=this.next;
+      if(!this.held){ click(t,b===0&&per>1,this.bus,0.28); setTimeout(()=>flashBeat(b),Math.max(0,(t-AC.currentTime)*1000)); }
+      this.beat=(b+1)%per; this.next+=spb;
+    }
+  },
+};
+function flashBeat(b){
+  const d=document.querySelectorAll('#mdots i')[b]; if(!d) return;
+  d.classList.add('lit'); setTimeout(()=>d.classList.remove('lit'),110);
+}
+function syncMetro(){
+  const btn=$('#metroBtn'), bar=$('#metro'), per=S.settings.metroBeats;
+  btn.classList.toggle('metro-on',Metro.on); btn.setAttribute('aria-pressed',Metro.on);
+  btn.setAttribute('aria-label',Metro.on?'Stop the metronome':'Metronome');
+  bar.hidden=!Metro.on; document.body.classList.toggle('metro-open',Metro.on);
+  $('#metroBpm').textContent=S.settings.metroBpm;
+  const dots=$('#mdots');
+  if(dots.childElementCount!==per) dots.innerHTML=Array.from({length:per},(_,k)=>`<i${k===0&&per>1?' class="acc"':''}></i>`).join('');
+  bar.querySelectorAll('[data-act="metro-beats"]').forEach(b=>b.setAttribute('aria-pressed',+b.dataset.v===per));
+  $('#metroNote').hidden=!Metro.held;
+}
 function playNow(m,dur){ const ac=audio(); if(!ac){ toast('This browser cannot play sound.'); return; } tone(m,ac.currentTime+0.02,dur||0.8,0.32); }
 
 let RUN=null;
@@ -800,7 +902,7 @@ function stopRun(silent){
   if(!RUN) return;
   cancelAnimationFrame(RUN.raf);
   try{ RUN.bus.gain.setValueAtTime(0,AC.currentTime); RUN.bus.disconnect(); }catch(e){}
-  const done=RUN.onEnd; RUN=null;
+  const done=RUN.onEnd; if(RUN.held) Metro.hold(false); RUN=null;
   $('#countin').hidden=true;
   if(AC) Mic.ignoreUntil=Math.min(Mic.ignoreUntil,AC.currentTime+0.15);
   if(done && !silent) done(true);
@@ -818,14 +920,16 @@ function runEvents(evts,{onMark,onEnd}={}){
   }
   const marks=evts.filter(e=>e.mark).sort((a,b)=>a.t-b.t);
   let last=-1;
-  RUN={bus,onEnd,raf:0};
+  const held=evts.some(e=>e.click);
+  if(held) Metro.hold(true);
+  RUN={bus,onEnd,raf:0,held};
   const loop=()=>{
     if(!RUN) return;
     const now=ac.currentTime-t0;
     let cur=last;
     for(let k=Math.max(0,last);k<marks.length;k++){ if(marks[k].t<=now+0.012) cur=k; else break; }
     if(cur!==last){ last=cur; onMark&&onMark(marks[cur]); }
-    if(now>=end+0.05){ const done=RUN.onEnd; RUN=null; $('#countin').hidden=true; done&&done(false); return; }
+    if(now>=end+0.05){ const done=RUN.onEnd; if(RUN.held) Metro.hold(false); RUN=null; $('#countin').hidden=true; done&&done(false); return; }
     RUN.raf=requestAnimationFrame(loop);
   };
   RUN.raf=requestAnimationFrame(loop);
@@ -929,6 +1033,7 @@ function noteSVG(n0,i,x,w,o){
   if(n.m==null){ s+=restSVG(cx,n.d); return {svg:s+'</g>',pos}; }
   const st=staffStep(n.m), y=yOf(st), f=BY_MIDI.get(n.m), col=colorFor(n.m);
   pos.y=y;
+  s+=`<text class="tm" x="${cx}" y="27" text-anchor="middle"></text>`;
   for(let k=-2;k>=st;k-=2) s+=`<line x1="${cx-12}" x2="${cx+12}" y1="${yOf(k)}" y2="${yOf(k)}" class="stl" style="opacity:.8"/>`;
   for(let k=10;k<=st;k+=2) s+=`<line x1="${cx-12}" x2="${cx+12}" y1="${yOf(k)}" y2="${yOf(k)}" class="stl" style="opacity:.8"/>`;
   if(spell(n.m).sharp) s+=`<text x="${cx-21}" y="${y+7}" class="acc" style="fill:${col}">♯</text>`;
@@ -1162,6 +1267,7 @@ function renderPlayer(){
         <button class="btn" data-act="follow" id="bFollow"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/></svg> Follow me</button>
         <button class="btn" data-act="scored" id="bScored"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/></svg> Play in time</button>
         <span class="hint" id="micHint">The app listens and checks every note.</span>
+        <label class="check"><input type="checkbox" id="followTiming" ${S.settings.followTiming?'checked':''}> Check my timing too</label>
       </div>
       <p class="feedback" id="playFb" aria-live="polite"></p>
       <div class="tempo">
@@ -1180,7 +1286,14 @@ function renderPlayer(){
     <div class="score" id="playerScore"></div>
   </div>`;
   drawPlayerScore();
-  $('#tempo').addEventListener('input',e=>{ p.tempo=+e.target.value; $('#tempoOut').textContent=p.tempo+' beats a minute'; });
+  $('#tempo').addEventListener('input',e=>{
+    p.tempo=+e.target.value; $('#tempoOut').textContent=p.tempo+' beats a minute';
+    if(FS && FS.timing){ FS.timing.spb=60/p.tempo; if(Metro.on) Metro.set(p.tempo); }
+  });
+  $('#followTiming').addEventListener('change',e=>{
+    S.settings.followTiming=e.target.checked; Store.saveSettings();
+    if(e.target.checked) toast('Follow me will play the metronome at the song\'s speed and tell you which notes came early or late.');
+  });
   $('#guide').addEventListener('change',e=>{ p.guide=e.target.checked; });
   syncPlayerButtons();
 }
@@ -1190,6 +1303,7 @@ function drawPlayerScore(){
   if(FS && FS.el===el){
     for(const [k,v] of Object.entries(FS.core.result)){ const g=el.querySelector(`.nt[data-i="${k}"]`); g&&g.classList.add(v); }
     const g=el.querySelector(`.nt[data-i="${FS.core.current()}"]`); g&&g.classList.add('on');
+    if(FS.timing && FS.timing.rep) for(const [k,v] of Object.entries(FS.timing.rep.res)) markTiming(el,k,v);
   } else if(S.player.idx>=0) setCursor(S.player.idx,false);
 }
 function syncPlayerButtons(){
@@ -1808,10 +1922,35 @@ function stopMic(){
 
 // "Follow me" sessions: used by songs and the lesson exercises
 let FS=null, SC=null;
-function stopFollow(){ if(FS){ const el=FS.el; FS=null; el && el.querySelectorAll('.nt.on').forEach(g=>g.classList.remove('on')); } }
-function startFollow(notes,el,fbEl,onDone){
+function stopFollow(){
+  if(!FS) return;
+  const el=FS.el, timed=!!FS.timing; FS=null;
+  el && el.querySelectorAll('.nt.on').forEach(g=>g.classList.remove('on'));
+  if(timed && Metro.auto) Metro.stop();
+}
+function markTiming(el,i,grade){
+  const g=el.querySelector(`.nt[data-i="${i}"]`); if(!g) return;
+  g.classList.remove('t-ok','t-early','t-late'); g.classList.add('t-'+grade);
+  const tx=g.querySelector('.tm'); if(tx) tx.textContent= grade==='early'?'early':grade==='late'?'late':'';
+}
+function clearTiming(el){
+  el.querySelectorAll('.nt').forEach(g=>g.classList.remove('t-ok','t-early','t-late'));
+  el.querySelectorAll('.tm').forEach(t=>t.textContent='');
+}
+function timingLine(t){
+  if(!t || !t.total) return '';
+  const pct=Math.round(100*t.ok/t.total);
+  const parts=[`${t.ok} of ${t.total} on the beat`];
+  if(t.late) parts.push(`${t.late} late`);
+  if(t.early) parts.push(`${t.early} early`);
+  return `Timing: ${parts.join(', ')}. `+(pct>=90?'Right on the beat!':pct>=70?'Good timing.':'Play with the clicks, or slow down the speed.');
+}
+// opts.timing = {spb}: also grade how long each note waited after the one before it.
+function startFollow(notes,el,fbEl,onDone,opts={}){
   stopFollow();
+  const T=opts.timing||null;
   el.querySelectorAll('.nt').forEach(g=>g.classList.remove('ok','retry','miss','on'));
+  clearTiming(el);
   const say=t=>{ if(fbEl){ fbEl.textContent=t; fbEl.className='feedback'; } };
   const mark=i=>{
     el.querySelectorAll('.nt.on').forEach(g=>g.classList.remove('on'));
@@ -1821,24 +1960,40 @@ function startFollow(notes,el,fbEl,onDone){
   };
   const core=makeFollow(notes,{
     onNext:i=>{ mark(i); },
-    onHit:()=>{ for(const k of Object.keys(core.result)){ const g=el.querySelector(`.nt[data-i="${k}"]`); if(g && !g.classList.contains('ok') && !g.classList.contains('retry')) g.classList.add(core.result[k]); } say(''); },
+    onHit:()=>{
+      for(const k of Object.keys(core.result)){ const g=el.querySelector(`.nt[data-i="${k}"]`); if(g && !g.classList.contains('ok') && !g.classList.contains('retry')) g.classList.add(core.result[k]); }
+      if(T){ T.rep=followTiming(notes,core.targets,core.result,core.onsets,T.spb); for(const [k,v] of Object.entries(T.rep.res)) markTiming(el,k,v); }
+      say('');
+    },
     onWrong:(i,m)=>{ const f=BY_MIDI.get(notes[i].m); say(`I heard ${noteLabel(m)}${highLow(BY_MIDI.get(m))?' '+highLow(BY_MIDI.get(m)):''}. This note is ${f?(highLow(f)?highLow(f)+' ':'')+f.name:noteLabel(notes[i].m)}.`); if(fbEl) fbEl.className='feedback wrong'; },
     onDone:st=>{
       el.querySelectorAll('.nt.on').forEach(g=>g.classList.remove('on'));
       const r=st.summary(); FS=null;
-      if(fbEl){ fbEl.className='feedback right'; fbEl.textContent = r.ok===r.total ? `Every note right the first time! ${r.total} of ${r.total}.` : `Done! ${r.ok} of ${r.total} notes right the first time. Orange notes took another try.`; }
+      if(T){ r.timing=followTiming(notes,st.targets,st.result,st.onsets,T.spb); if(Metro.auto) Metro.stop(); }
+      if(fbEl){
+        fbEl.className='feedback right';
+        fbEl.textContent = (r.ok===r.total ? `Every note right the first time! ${r.total} of ${r.total}.` : `Done! ${r.ok} of ${r.total} notes right the first time. Orange notes took another try.`)
+          + (T ? ' '+timingLine(r.timing) : '');
+      }
       onDone&&onDone(r);
     },
   });
-  FS={core,el};
+  FS={core,el,timing:T};
   if(core.targets.length) mark(core.current());
-  say('Play the yellow note. I\'ll wait for you.');
+  say(T ? 'Play the yellow note. Keep with the clicks: I\'m checking your timing too.' : 'Play the yellow note. I\'ll wait for you.');
 }
 async function startFollowSong(){
   if(!await ensureMic()) return;
-  stopRun(true);
+  stopRun(true); stopFollow();
   const p=S.player; p.mode='follow'; syncPlayerButtons();
-  startFollow(p.song.notes,$('#playerScore'),$('#playFb'),()=>{ p.mode=null; syncPlayerButtons(); });
+  let timing=null;
+  if(S.settings.followTiming){
+    // The metronome plays at the song's speed so there is a beat to keep.
+    timing={spb:60/p.tempo};
+    Metro.set(p.tempo,Math.round(beatsPerBar(p.song.meter)));
+    if(!Metro.on && Metro.start()) Metro.auto=true;
+  }
+  startFollow(p.song.notes,$('#playerScore'),$('#playFb'),()=>{ p.mode=null; syncPlayerButtons(); },{timing});
 }
 async function startScored(){
   if(!await ensureMic()) return;
@@ -2022,6 +2177,9 @@ document.addEventListener('click',e=>{
     case 'g-check': { const g=S.game; finishAnswer(holesEqual(g.holes,BY_MIDI.get(g.target).holes)); break; }
     case 'g-hear': playNow(S.game.target,1); break;
     case 'g-next': nextRound(); break;
+    case 'metro': if(Metro.on) Metro.stop(); else Metro.start(); Metro.auto=false; break;
+    case 'metro-bpm': Metro.set(S.settings.metroBpm+(+a.dataset.d)); break;
+    case 'metro-beats': Metro.set(null,+a.dataset.v); break;
     case 'settings-open': openSettings(); break;
     case 'settings-close': $('#settings').hidden=true; $('#settingsBtn').focus(); break;
     case 'tuning': S.settings.tuning=+a.dataset.v; Store.saveSettings(); syncSettings(); playNow(69,0.8); break;
@@ -2061,6 +2219,7 @@ window.addEventListener('resize',()=>{ clearTimeout(rzT); rzT=setTimeout(()=>{
 // ---------- Start ----------
 Store.loadLocal();
 applyAppearance();
+syncMetro();
 updateStoreNote();
 if(S.settings.awake) Awake.enable(false);
 go(VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'flute');
