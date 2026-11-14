@@ -11,10 +11,11 @@ The user is David, a parent building this for his son. The son is the end user, 
 - `tests/timing.test.js`: Node tests for the Follow me timing grade.
 - `tests/record.test.js`: Node tests for turning a recording into notes.
 - `tests/rhythm.test.js`: Node tests for rhythm tapping grades, and a check that every tap rhythm fills whole bars.
+- `tests/apikey.e2e.js`: Playwright test of reading photos with a Claude API key, against a stand-in for Claude's API (needs internet for the SDK from the CDN).
 - `tests/course.e2e.js`, `tests/rhythm.e2e.js`, `tests/player.e2e.js`: Playwright tests of the Learn course, the rhythm lessons and the song player while playing (need a local server; see each file's header).
 - `CLAUDE.md`: this file.
 
-Keep it a single self-contained file unless there's a strong reason to split it. It runs in two places and has to work in both (see below).
+Keep it a single self-contained file unless there's a strong reason to split it. The one outside script is the Anthropic SDK, loaded from jsDelivr only when a photo is read with an API key. It runs in two places and has to work in both (see below).
 
 ## The instrument (source of truth)
 
@@ -48,7 +49,8 @@ These facts come from Choroi's printed fingering chart, which David photographed
    - `db` and `user`: saved songs and lesson progress are kept per user in the artifact's database.
    - **The microphone is blocked** in the artifact frame, which is a platform rule. The mic button explains this and points to the standalone copy.
 2. **Standalone**, served from an https address (planned: GitHub Pages) and added to the iPad Home Screen.
-   - `window.claude` doesn't exist there, so storage falls back to `localStorage` and photo reading shows a "needs Claude" message.
+   - `window.claude` doesn't exist there, so storage falls back to `localStorage`.
+   - Photo reading uses a Claude API key that a grown-up saves in Settings ("Reading photos with Claude"). Without a key, the photo tab says a grown-up can add one. A claude.ai login can't be used: API use is billed to a Console account, not a claude.ai plan (some plans include monthly API credits).
    - The microphone works there. It needs https.
    - Set the `STANDALONE_URL` constant to the hosted address so the mic button inside Claude can link to it.
 
@@ -124,6 +126,12 @@ The Claude-hosted copy is republished from a claude.ai chat. After changing `ind
   - `startFollow()`, `startFollowSong()`, `startScored()`, `EXERCISES` (lessons 1, 2 and 6).
   - Recording: `REC`, `renderRecordPanel()`, `startRecording()`, `recFeed()`, `finishRecording()`, `playNotes()`. Leaving the Make page, switching tab or turning the mic off finishes a recording rather than throwing it away.
   - `startFollow(..., {timing:{spb}})` turns on the timing grade; `markTiming()` writes "early" or "late" into each note's `.tm` label.
+- **Claude API with a key** (standalone copy only; hidden inside Claude):
+  - `ClaudeKey` keeps the key in `localStorage` under `quinta.apikey`, separate from `quinta.settings`, so it never syncs anywhere. The Settings box shows "A key is saved (hidden)" and never shows the key again.
+  - `loadClaudeSDK()` imports `@anthropic-ai/sdk@1.3.0` from `cdn.jsdelivr.net/.../+esm` on first use and keeps the module in `SDK`. The client uses `dangerouslyAllowBrowser: true`, because the family's own key is typed in on their own device. This SDK version sends the key as `Authorization: Bearer` with API version `2026-10-21`.
+  - `readWithKey()` sends the photo (base64) and `PHOTO_PROMPT` to `claude-opus-5-5` through `client.beta.messages.stream(...).finalMessage()`, with `output_config.effort: 'high'`, `max_tokens: 16000`, and server-side refusal fallbacks (`betas: ['server-side-fallback-2026-07-01']`, `fallbacks: 'default'`). It checks for a `refusal` stop reason, and the Stop button aborts through the signal.
+  - `keyErrorText()` turns the SDK's error classes (checked with `instanceof`, most specific first) into plain messages. `keyTest()` calls `models.retrieve`, which costs nothing.
+  - `readPhoto()` uses `window.claude` when it's there, and the key otherwise.
 - **Navigation and actions**: hash routing (`#flute`, `#songs`, `#make`, `#learn`) and one delegated click handler that switches on `data-act`.
 
 ## Listening details (tuned against synthetic tones, not yet a real flute)
@@ -197,7 +205,7 @@ The Claude-hosted copy is republished from a claude.ai chat. After changing `ind
 
 ## Testing
 
-The timing, recording, rhythm, course and player tests are checked in. These are the checks that were used; recreate the others under `tests/` when needed.
+The timing, recording, rhythm, course, player and API key tests are checked in. These are the checks that were used; recreate the others under `tests/` when needed.
 
 1. **Core logic** (`node tests/core.test.js index.html`):
    - Extract the code between the CORE markers and run it in a Node `vm`.
@@ -222,7 +230,8 @@ The timing, recording, rhythm, course and player tests are checked in. These are
 6. **Rhythm** (`node tests/rhythm.test.js`, and `tests/rhythm.e2e.js` in the browser): grades for on time, steady lag, wobble, missed notes, extra taps, rests, eighths and long-short rhythms. The browser test sends real pointer taps timed against the audio clock, and checks the bar builder, the other rhythm questions, warm-up, Rhythm Tapper and phone width.
 7. **Song player** (`tests/player.e2e.js`): during Play along and Listen, every new line lands 10 px under the slim bar with the next line fully visible (iPad and phone), the floating metronome is hidden, and pull-down, the arrow and Hide controls work.
 8. **Course** (`tests/course.e2e.js`): builds every possible quiz question, passes and fails quizzes, checks locks, Practice my mistakes and a game, the grown-ups page, reload, and phone width.
-9. **Visual check:** take one Playwright screenshot at 1180×820, and check that the page is no wider than 390 px at phone width. To render the real fonts offline, route the Google Fonts requests to local copies of the TTF files.
+9. **API key** (`tests/apikey.e2e.js`): no key, a malformed key, a wrong key, Test, reading a photo (checks the model, effort, fallback, browser header and image sent), a declined photo, Stop, a revoked key, Remove, and that the key stays out of the saved settings.
+10. **Visual check:** take one Playwright screenshot at 1180×820, and check that the page is no wider than 390 px at phone width. To render the real fonts offline, route the Google Fonts requests to local copies of the TTF files.
 
 ## Open items
 
@@ -231,7 +240,8 @@ The timing, recording, rhythm, course and player tests are checked in. These are
 - Timing only checks the gap between notes, not whether notes land on the metronome's clicks. A "stay with the clicks" grade could be added later.
 - Check the F♯ and C half-hole fingerings on the real flute.
 - Ask David which fingers cover which holes, then add finger names to the instructions.
-- Host the standalone copy (GitHub Pages), set `STANDALONE_URL`, and republish the Claude copy.
+- Host the standalone copy (GitHub Pages), set `STANDALONE_URL`, and republish the Claude copy. With the API key option, the standalone copy can be the only copy David uses.
+- Try photo reading with a real key on the iPad.
 - The Claude copy and the standalone copy don't share saved songs (`db` vs `localStorage`). An export/import of songs as ABC text could bridge them.
 - Next steps for the course, agreed with David:
   - Rhythm is done (Unit 3). Check the tap tolerance with the real iPad: touch and speaker delay differ by device.
