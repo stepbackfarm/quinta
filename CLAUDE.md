@@ -48,11 +48,11 @@ These facts come from Choroi's printed fingering chart, which David photographed
    - `sample` with `images: true`: "Snap a photo" sends sheet music to Claude, which returns ABC notation.
    - `db` and `user`: saved songs and lesson progress are kept per user in the artifact's database.
    - **The microphone is blocked** in the artifact frame, which is a platform rule. The mic button explains this and points to the standalone copy.
-2. **Standalone**, served from an https address (planned: GitHub Pages) and added to the iPad Home Screen.
+2. **Standalone**, served by GitHub Pages from `main` at https://stepbackfarm.github.io/quinta/ and added to the iPad Home Screen. Merging to `main` updates it.
    - `window.claude` doesn't exist there, so storage falls back to `localStorage`.
    - Photo reading uses a Claude API key that a grown-up saves in Settings ("Reading photos with Claude"). Without a key, the photo tab says a grown-up can add one. A claude.ai login can't be used: API use is billed to a Console account, not a claude.ai plan (some plans include monthly API credits).
    - The microphone works there. It needs https.
-   - Set the `STANDALONE_URL` constant to the hosted address so the mic button inside Claude can link to it.
+   - `STANDALONE_URL` is set to that address, so the mic button inside Claude links to it.
 
 **Rule:** any feature that depends on `window.claude` must check for it and degrade gracefully. Any feature that needs the mic must explain itself when the mic isn't available.
 
@@ -240,7 +240,7 @@ The timing, recording, rhythm, course, player and API key tests are checked in. 
 - Timing only checks the gap between notes, not whether notes land on the metronome's clicks. A "stay with the clicks" grade could be added later.
 - Check the F♯ and C half-hole fingerings on the real flute.
 - Ask David which fingers cover which holes, then add finger names to the instructions.
-- Host the standalone copy (GitHub Pages), set `STANDALONE_URL`, and republish the Claude copy. With the API key option, the standalone copy can be the only copy David uses.
+- Republish the Claude copy so its mic button links to the GitHub Pages copy. With the API key option, the GitHub Pages copy can be the only copy David uses.
 - Try photo reading with a real key on the iPad.
 - The Claude copy and the standalone copy don't share saved songs (`db` vs `localStorage`). An export/import of songs as ABC text could bridge them.
 - Next steps for the course, agreed with David:

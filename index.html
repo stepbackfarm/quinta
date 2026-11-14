@@ -2760,7 +2760,7 @@ document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==
 
 // ---------- Listening ----------
 const MIC_ICON=`<svg width="20" height="20" style="vertical-align:-4px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/></svg>`;
-const STANDALONE_URL=''; // the app's own web address, where the microphone works (filled in once it is hosted)
+const STANDALONE_URL='https://stepbackfarm.github.io/quinta/'; // the app's own web address (GitHub Pages), where the microphone works
 const Mic={
   on:false, wide:false, stream:null, src:null, an:null, sink:null, buf:null, raf:0, tracker:new NoteTracker(), ignoreUntil:0, nf:0.003,
   async start(){
