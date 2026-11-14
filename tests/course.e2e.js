@@ -12,7 +12,7 @@ const shots=process.argv[2];
   // every question every lesson can ask builds
   console.log('questions:',await pg.evaluate(()=>{
     let n=0; const bad=[];
-    for(const L of LESSONS){ for(let t=0;t<30;t++){ for(const k of quizKeys(L.quiz)){ n++; const q=makeQ(k,400); if(!q||!q.choices.some(c=>c.v===q.answer)) bad.push(L.id+':'+k); } } if(quizKeys(L.quiz).length!==5) bad.push(L.id+' has '+quizKeys(L.quiz).length); }
+    for(const L of LESSONS){ for(let t=0;t<30;t++){ for(const k of quizKeys(L.quiz)){ n++; const q=makeQ(k,400); if(!q||(!q.tap&&!q.build&&!q.choices.some(c=>c.v===q.answer))) bad.push(L.id+':'+k); } } if(quizKeys(L.quiz).length!==5) bad.push(L.id+' has '+quizKeys(L.quiz).length); }
     for(const k of ['ear:69','fingx:71','name:62']) if(!makeQ(k,400)) bad.push(k);
     return {n,bad:[...new Set(bad)]};
   }));

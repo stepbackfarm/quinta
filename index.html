@@ -154,6 +154,19 @@ body.metro-open .view{padding-bottom:140px}
 .hist .hday{font-weight:700;margin-top:10px;color:var(--muted)}
 .hist li:not(.hday){display:grid;grid-template-columns:80px 1fr;gap:10px}
 .htime{color:var(--muted)}
+.tappad{display:block;width:min(100%,420px);min-height:150px;border-radius:28px;border:3px solid var(--accent);background:var(--card);color:var(--accent);font-size:34px;font-weight:700;touch-action:manipulation;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+.tappad:not(:disabled){background:var(--accent);color:var(--accent-ink)}
+.tappad.hit{background:color-mix(in srgb,var(--accent) 70%,var(--card))}
+.tappad:disabled{opacity:.5;cursor:default}
+.ans.rhythm{padding:8px 12px;min-height:0}
+.ans.rhythm .score{display:block;width:300px;max-width:100%}
+.ans.rhythm svg{width:100%;height:auto}
+.ans .g{font-family:var(--music);font-size:34px;line-height:1.15}
+.bpart .g{font-size:26px}
+.bcount{font-weight:700;font-size:20px}
+.bcount.full{color:var(--good)} .bcount.over{color:var(--carmine)}
+.bpart small{font-weight:400;color:var(--muted);margin-left:4px}
+button.dur{cursor:pointer;font:inherit;color:inherit}
 .hear{width:100%;padding:8px 6px 2px;border-top:1px solid var(--line);text-align:center;font-size:14px;line-height:1.3}
 .hear strong{font-size:20px}
 .meter{position:relative;height:10px;border-radius:5px;background:var(--line);margin:6px 8px 4px}
@@ -281,7 +294,8 @@ input[type=text],select{min-height:48px;border:2px solid var(--line);border-radi
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:var(--card);padding:12px 20px;border-radius:12px;font-weight:700;z-index:40;max-width:min(560px,90vw);text-align:center}
 .toast[hidden]{display:none}
 @media (max-width:900px){
-  .learn{grid-template-columns:1fr}
+  .learn{grid-template-columns:minmax(0,1fr)}
+  .lnav .lbtn{max-width:100%}
   .lnav{flex-direction:row;flex-wrap:wrap}
   .lnav h3{width:100%}
 }
@@ -744,6 +758,35 @@ function scoreTimed(notes,starts,spb,frames,lat){
   });
   return {res,ok,total};
 }
+// ---- Rhythm: tapping a written rhythm (pure, testable) ----
+// Rhythm strings: note lengths in beats joined by "-", with "r" in front of a rest, e.g. "1-1-r1-0.5-0.5".
+function rhythmItems(str){ return str.split('-').map(x=>x[0]==='r'?{rest:true,d:+x.slice(1)}:{rest:false,d:+x}); }
+// "4:1-1-2@72" = 4 beats in a bar, the rhythm, and the speed in beats a minute.
+function parseTapArg(arg){ const c=arg.indexOf(':'); const beats=+arg.slice(0,c); const [str,bpm]=arg.slice(c+1).split('@'); return {beats,str,items:rhythmItems(str),bpm:+bpm||72}; }
+// expected and taps are times in seconds. Each written note is matched to the nearest unused tap.
+// A steady lag or lead (screen and speaker delay) is taken out first, up to 70 ms.
+// The answer is right when no note is missed, at most one extra tap, and 3 in 4 notes are on time.
+function gradeTaps(expected,taps,spb){
+  const n=expected.length; let minGap=spb;
+  for(let i=1;i<n;i++) minGap=Math.min(minGap,expected[i]-expected[i-1]);
+  const win=Math.min(0.4,0.5*minGap), tol=Math.max(0.08,Math.min(0.15,0.3*minGap));
+  taps=taps.slice().sort((a,b)=>a-b);
+  const devs=[];
+  for(const t of expected){ let best=null; for(const x of taps){ const d=x-t; if(Math.abs(d)<=win && (best==null||Math.abs(d)<Math.abs(best))) best=d; } if(best!=null) devs.push(best); }
+  devs.sort((a,b)=>a-b);
+  const bias=devs.length>=3?Math.max(-0.07,Math.min(0.07,devs[Math.floor(devs.length/2)])):0;
+  const used=new Set(), res=[]; let ok=0,early=0,late=0,miss=0;
+  for(const t of expected){
+    let bi=-1,bd=Infinity;
+    taps.forEach((x,j)=>{ if(used.has(j)) return; const d=x-bias-t; if(Math.abs(d)<=win && Math.abs(d)<Math.abs(bd)){ bi=j; bd=d; } });
+    if(bi<0){ res.push('miss'); miss++; continue; }
+    used.add(bi);
+    if(Math.abs(bd)<=tol){ res.push('ok'); ok++; } else if(bd<0){ res.push('early'); early++; } else { res.push('late'); late++; }
+  }
+  const lo=expected[0]-win, hi=expected[n-1]+win;
+  const extra=taps.filter((x,j)=>!used.has(j) && x-bias>=lo && x-bias<=hi).length;
+  return {res,ok,early,late,miss,extra,bias,right: miss===0 && extra<=1 && ok>=Math.ceil(0.75*n)};
+}
 // ---- Recording: turn heard notes into written notes (pure, testable) ----
 // Guess the beat from the gaps between note starts: most notes in a simple tune are one beat long.
 function estimateBeat(onsets){
@@ -1143,8 +1186,9 @@ function noteSVG(n0,i,x,w,o){
   let n=n0, trip=false;
   if(!STD_D.some(v=>Math.abs(v-n0.d)<1e-3) && Math.abs(n0.d*3-Math.round(n0.d*3))<1e-3){ n={...n0,d:n0.d*1.5}; trip=true; }
   const h=o.fing?214:122;
-  let s=`<g class="nt" ${o.tap?`data-act="score-note" data-i="${i}"`:''}><rect class="nbg" x="${x+1}" y="14" width="${Math.max(10,w-2)}" height="${h-16}" rx="10"/>`;
+  let s=`<g class="nt" data-i="${i}" ${o.tap?'data-act="score-note"':''}><rect class="nbg" x="${x+1}" y="14" width="${Math.max(10,w-2)}" height="${h-16}" rx="10"/>`;
   const pos={cx,y:62,up:true};
+  if(n.ghost){ s+=`<rect x="${x+6}" y="42" width="${Math.max(24,w-12)}" height="44" rx="8" style="fill:none;stroke:var(--accent)" stroke-width="2" stroke-dasharray="5 4"/><text x="${x+w/2}" y="72" text-anchor="middle" font-size="24" font-weight="700" style="fill:var(--accent)">?</text>`; return {svg:s+'</g>',pos}; }
   if(n.m==null){ s+=restSVG(cx,n.d); return {svg:s+'</g>',pos}; }
   const st=staffStep(n.m), y=yOf(st), f=BY_MIDI.get(n.m), col=colorFor(n.m);
   pos.y=y;
@@ -1727,10 +1771,24 @@ const UNITS=[
   {id:'u3',title:'Beat and rhythm',lessons:[
     {id:'bt',title:'The steady beat',quiz:[['tempo',3],['mc',2,['bt-beat','bt-tempo','bt-bpm']]],
      grown:'The beat is the steady pulse under music, and tempo is its speed in beats per minute. Tapping a foot or clapping along to any music he likes builds this sense. The metronome button at the top of the screen plays a beat on any page.'},
+    {id:'tb',title:'Tap the beat',warm:['tap:4:1-1-1-1-1-1-1-1@72'],
+     quiz:[['tap',3,['tap:4:1-1-1-1-1-1-1-1@66','tap:4:1-1-1-1-1-1-1-1@80','tap:4:1-1-1-1-1-1-1-1@96','tap:3:1-1-1-1-1-1@76']],['mc',2,['tb-countin','tb-steady','tb-count']]],
+     grown:'A steady beat is the base of all rhythm. The app counts in one bar, then marks each tap as on time, early, late or missed. It allows for the small delay of the screen and speaker. If taps keep coming out early or late, count out loud together with him.'},
     {id:'l4',title:'Long and short notes',quiz:[['beats',4],['mc',1,['l4-dot','l4-whole']]],
      grown:'Note lengths are counted in beats: a whole note is 4, a half note 2, a quarter note 1, and an eighth note ½. A dot adds half the note\'s length again. Counting out loud ("1, 2, 3, 4") while he plays helps a lot.'},
+    {id:'rs',title:'Rests: quiet beats',warm:['tap:4:1-1-1-r1-1-1-1-r1@66'],
+     quiz:[['rest',2],['tap',2,['tap:4:1-1-1-r1-1-1-1-r1@72','tap:4:1-r1-1-r1-2-r2@72','tap:4:2-r2-1-1-2@72']],['hear',1,['d']]],
+     grown:'A rest is a silent beat: the player stops but keeps counting. Rests have their own shapes and lengths, just like notes. The quarter rest is the squiggle; the half rest sits on the middle line like a hat; the whole rest hangs below the line like a hole.'},
     {id:'l5',title:'Beats and bars',quiz:[['bar',3],['mc',2,['l5-top','l5-strong','l5-barline','l5-waltz']]],
      grown:'A time signature like 4/4 means 4 beats in each bar, with a quarter note as one beat. Bar lines help a reader keep their place, and beat 1 of each bar gets a natural push.'},
+    {id:'bb',title:'Build a bar',warm:['build:4'],quiz:[['build',2,['4','3','2']],['miss',3]],
+     grown:'The notes and rests in every bar add up to the top number of the time signature. This lesson is like a math puzzle: he builds bars from note lengths and finds the note that completes a bar. Adding up beats on paper is a good way to check rhythms in any song.'},
+    {id:'rh',title:'Reading rhythms',warm:['tap:4:1-1-2-1-1-2@66'],
+     quiz:[['tap',3,['tap:4:1-1-2-1-1-2@72','tap:4:0.5-0.5-1-1-1-0.5-0.5-0.5-0.5-2@66','tap:4:1-0.5-0.5-1-1-2-2@72','tap:4:2-1-1-0.5-0.5-0.5-0.5-2@66']],['hear',2,['a','b','c','g']]],
+     grown:'"Ta", "ti-ti" and "ta-a" are rhythm syllables used in many school music programs (the Kodály method). Saying a rhythm before playing it separates the timing from the fingers. Ask him to say the rhythm of a song from the song book before he plays it.'},
+    {id:'lsr',title:'Long-short rhythms',warm:['tap:4:1.5-0.5-2-1.5-0.5-2@60'],
+     quiz:[['beats',1,['1.5']],['tap',2,['tap:4:1.5-0.5-1-1-1.5-0.5-2@66','tap:4:1.5-0.5-1.5-0.5-2-2@66','tap:4:1-1-1.5-0.5-2-2@66']],['hear',2,['e','f']]],
+     grown:'A dotted quarter note (1½ beats) followed by an eighth note (½ beat) makes a long-short pair that fills 2 beats. It is one of the most common rhythms in folk songs, including "Auld Lang Syne" in the song book. Counting "1 - and 2 and" helps: the eighth note falls on the "and".'},
   ]},
   {id:'u4',title:'The sound of the Quinta',lessons:[
     {id:'l2',title:'A is home',quiz:[['mc',5,['l2-home','l2-mid','l2-fifth','l2-mood','l2-afing']]],
@@ -1769,6 +1827,9 @@ const MCQ={
   'bt-beat':{q:'What is the beat?',c:['A steady pulse, like a clock ticking','The loudest note in a song','The last note of a song'],ex:'The beat is the steady pulse under the music.'},
   'bt-tempo':{q:'What does "tempo" mean?',c:['How fast the beat goes','How high the notes are','How loud you play'],ex:'Tempo is the speed of the beat.'},
   'bt-bpm':{q:'Which is faster: 60 beats a minute or 120 beats a minute?',c:['120','60'],ex:'120 beats a minute is twice as fast as 60.'},
+  'tb-countin':{q:'What is the count-in?',c:['Clicks before you start, so you know the speed','The last note of a song','Counting how many notes there are'],ex:'The count-in is one bar of clicks before you start, so you feel the speed.'},
+  'tb-steady':{q:'When you tap the beat, how should your taps be?',c:['Steady and even, like a clock','Faster and faster','As fast as you can'],ex:'The beat stays steady and even.'},
+  'tb-count':{q:'In a bar of 4, which numbers do you count?',c:['1, 2, 3, 4','1, 2, 3','4, 3, 2, 1'],ex:'Count 1, 2, 3, 4, then start again at 1.'},
   'l4-dot':{q:'What does a dot after a note do?',c:['Makes it half again as long','Makes it shorter','Makes it louder'],ex:'A dot adds half again. A dotted half note is 2 + 1 = 3 beats.'},
   'l4-whole':{q:'Which note do you hold the longest?',c:['Whole note','Half note','Quarter note'],ex:'A whole note lasts 4 beats, the longest of these.'},
   'l5-top':{q:'In a time signature, what does the top number tell you?',c:['How many beats are in each bar','How fast to play','How many notes are in the song'],ex:'The top number is the number of beats in each bar.'},
@@ -1786,7 +1847,28 @@ const MCQ={
   'l7-half':{q:'How can you play F♯ or C on the Quinta?',c:['Cover half of a hole','Blow very hard','Lift your thumb'],ex:'Cover half of a hole, then listen and adjust.'},
   'l7-make':{q:'Which page moves a song to fit your flute?',c:['Make','Flute','Learn'],ex:'The Make page.'},
 };
-const DUR_NAMES={4:'whole note',3:'dotted half note',2:'half note',1:'quarter note',0.5:'eighth note'};
+const DUR_NAMES={4:'whole note',3:'dotted half note',2:'half note',1.5:'dotted quarter note',1:'quarter note',0.5:'eighth note'};
+const REST_NAMES={1:'quarter rest',2:'half rest',4:'whole rest'};
+// "Which rhythm did you hear?" Each set holds 3 one-bar rhythms that are easy to mix up.
+const HEAR_SETS={a:['1-1-1-1','2-2','1-1-2'],b:['2-1-1','1-1-2','1-2-1'],c:['0.5-0.5-1-1-1','1-1-0.5-0.5-1','1-1-1-0.5-0.5'],
+  d:['1-r1-1-1','1-1-r1-1','1-1-1-r1'],e:['1.5-0.5-2','2-1.5-0.5','1-1-2'],f:['1.5-0.5-1-1','1-1-1.5-0.5','1-1-1-1'],g:['4','2-2','3-1']};
+// "Which note finishes the bar?" Beats in the bar, then the notes already there.
+const MISS_KEYS=['4:2-1','4:1-1-1','4:2','4:1','4:3','4:1-1','4:0.5-0.5-2','4:1-1-1-0.5','4:1-r1-1','3:2','3:1','3:1-1','3:0.5-0.5-1'].map(k=>'miss:'+k);
+const MISS_CHOICES=[[0.5,'♪','eighth note','½ beat'],[1,'♩','quarter note','1 beat'],[2,'𝅗𝅥','half note','2 beats'],[3,'𝅗𝅥.','dotted half','3 beats']];
+const BUILD_PARTS=[['4','𝅝','whole','4'],['3','𝅗𝅥.','dotted half','3'],['2','𝅗𝅥','half','2'],['1','♩','quarter','1'],['0.5','♪','eighth','½'],['r1','𝄽','quarter rest','1'],['r2','𝄼','half rest','2']];
+// Rhythm Tapper practice game: 8 rhythms, easy to hard.
+const TAPPER_KEYS=['tap:4:1-1-1-1-1-1-1-1@72','tap:4:2-2-1-1-2@72','tap:4:1-1-2-1-1-2@72','tap:4:1-r1-1-r1-1-1-2@72','tap:3:1-1-1-2-1-3@80','tap:4:1-0.5-0.5-1-1-2-2@72','tap:4:0.5-0.5-1-0.5-0.5-1-2-2@66','tap:4:1.5-0.5-1-1-1.5-0.5-2@66'];
+function rhythmNotes(beats,str){ return autoBars(rhythmItems(str).map(it=>({m:it.rest?null:69,d:it.d})),[beats,4]); }
+function beatWords(d){ return d===0.5?'half a beat':d===1?'1 beat':d===1.5?'1½ beats':d+' beats'; }
+function rhythmScore(beats,str,w,time){ return renderScore(rhythmNotes(beats,str),[beats,4],w,{fing:false,letters:false,time:time!==false,tap:false}); }
+// Play a rhythm on A, with a count-in bar and soft clicks.
+function playRhythm(beats,str,bpm){
+  const spb=60/bpm, notes=rhythmNotes(beats,str), ev=[]; let pos=0;
+  for(let k=0;k<beats;k++) ev.push({t:k*spb,click:true,accent:k===0,vol:0.3});
+  for(const n of notes){ if(n.m!=null) ev.push({t:(beats+pos)*spb,m:69,dur:n.d*spb*0.85,vol:0.3}); pos+=n.d; }
+  for(let b=0;b<Math.ceil(pos);b++) ev.push({t:(beats+b)*spb,click:true,accent:b%beats===0,vol:0.1});
+  runEvents(ev);
+}
 const BAR_PATTERNS=['1-1','2','0.5-0.5-1','1-1-1','2-1','3','1-2','0.5-0.5-2','1-1-1-1','2-2','2-1-1','4','3-1','1-1-2','0.5-0.5-1-2'];
 const LINE_SPOT={64:'on the bottom line',67:'on the second line',71:'on the middle line',74:'on the fourth line',69:'in the space above G',76:'in the top space'};
 function noteName(m){ const f=BY_MIDI.get(m); if(!f) return noteLabel(m); const h=highLow(f); return h?h+' '+f.name:f.name; }
@@ -1803,7 +1885,12 @@ function quizKeys(spec){
     else if(type==='ls') add(Object.keys(LINE_SPOT).map(m=>'ls:'+m),n);
     else if(type==='name') add(notes.map(m=>'name:'+m),n);
     else if(type==='fing'||type==='fingx') add(notes.map(m=>type+':'+m),n);
-    else if(type==='beats') add(['4','3','2','1','0.5'].map(d=>'beats:'+d),n);
+    else if(type==='beats') add((opt||['4','3','2','1','0.5']).map(d=>'beats:'+d),n);
+    else if(type==='tap') add(opt,n);
+    else if(type==='hear') add(opt.flatMap(g=>HEAR_SETS[g].map((_,k)=>`hear:${g}:${k}`)),n);
+    else if(type==='miss') add(MISS_KEYS,n);
+    else if(type==='build') add(opt.map(b=>'build:'+b),n);
+    else if(type==='rest') add(['1','2','4'].map(d=>'rest:'+d),n);
     else if(type==='bar') add(BAR_PATTERNS.map(p=>'bar:'+p),n);
     else if(type==='tempo') add(['56','60','66','132','144','152'].map(b=>'tempo:'+b),n);
   }
@@ -1862,8 +1949,39 @@ function makeQ(key,w){
     const d=+arg; if(!DUR_NAMES[d]) return null;
     q.visual=staffOne(69,d,Math.min(w,240)); q.prompt='How many beats does this note last?';
     q.answer=String(d); q.text=true;
-    q.choices=['0.5','1','2','3','4'].map(v=>({v,html:v==='0.5'?'½':v}));
-    q.explain=`This is a ${DUR_NAMES[d]}. It lasts ${d===0.5?'half a beat':d===1?'1 beat':d+' beats'}.`;
+    q.choices=(d===1.5?['0.5','1','1.5','2','3']:['0.5','1','2','3','4']).map(v=>({v,html:v==='0.5'?'½':v==='1.5'?'1½':v}));
+    q.explain=`This is a ${DUR_NAMES[d]}. It lasts ${beatWords(d)}.`;
+  } else if(type==='rest'){
+    const d=+arg; if(!REST_NAMES[d]) return null;
+    q.visual=renderScore([{m:null,d,bar:true}],[4,4],Math.min(w,220),{fing:false,letters:false,time:false,tap:false});
+    q.prompt='How many beats does this rest last?'; q.answer=String(d); q.text=true;
+    q.choices=['1','2','3','4'].map(v=>({v,html:v}));
+    q.explain=`This is a ${REST_NAMES[d]}. It lasts ${beatWords(d)}.`+(d===2?' It sits on the line like a hat.':d===4?' It hangs down like a hole.':'');
+  } else if(type==='tap'){
+    const t=parseTapArg(arg); if(!t.beats||!t.items.length) return null;
+    q.tap=t; q.notes0=rhythmNotes(t.beats,t.str);
+    q.visual=rhythmScore(t.beats,t.str,Math.min(w+120,640));
+    q.prompt=`Tap this rhythm. Press Start, listen to ${t.beats} count-in clicks, then tap the big button once for every note.`;
+    q.play=()=>playRhythm(t.beats,t.str,t.bpm); q.answer='right'; q.explain='';
+  } else if(type==='hear'){
+    const [g,k]=arg.split(':'); const set=HEAR_SETS[g]; if(!set||!set[+k]) return null;
+    q.prompt='Listen. Which rhythm did you hear?'; q.answer=k; q.rhythms=true;
+    q.play=()=>playRhythm(4,set[+k],72);
+    q.choices=shuffle(set.map((str,i)=>({v:String(i),html:`<span class="score">${rhythmScore(4,str,360,false)}</span>`})));
+    q.explain='The right one is marked green. Tap Hear it again and follow along.';
+  } else if(type==='miss'){
+    const c=arg.indexOf(':'), beats=+arg.slice(0,c), str=arg.slice(c+1);
+    const have=rhythmItems(str).reduce((a,b)=>a+b.d,0), need=beats-have; if(!MISS_CHOICES.some(x=>x[0]===need)) return null;
+    const notes=rhythmItems(str).map(it=>({m:it.rest?null:69,d:it.d,bar:false})); notes.push({m:null,d:need,ghost:true,bar:true});
+    q.visual=renderScore(notes,[beats,4],Math.min(w,420),{fing:false,letters:false,time:true,tap:false});
+    q.prompt=`This bar needs ${beats} beats. Which note fills the empty space?`; q.answer=String(need); q.text=true;
+    q.choices=MISS_CHOICES.map(([v,g,nm,b])=>({v:String(v),html:`<span class="g">${g}</span><small>${nm}</small>`}));
+    q.explain=`The bar already has ${have===0.5?'½':have} ${have===1?'beat':'beats'}, so it needs ${beatWords(need)} more: a ${DUR_NAMES[need]}.`;
+  } else if(type==='build'){
+    const beats=+arg; if(![2,3,4].includes(beats)) return null;
+    q.build=beats; q.prompt=`Build a bar in ${beats}. Tap notes and rests until the bar holds exactly ${beats} beats, then tap Check.`;
+    q.answer='right'; q.explain='';
+    q.play=()=>{ const z=S.quiz; if(z&&z.build&&z.build.length) playRhythm(beats,z.build.join('-'),76); };
   } else if(type==='bar'){
     const ds=arg.split('-').map(Number); const sum=ds.reduce((a,b)=>a+b,0); if(!ds.every(d=>DUR_NAMES[d])) return null;
     const ms=[67,69,71,74,69,67]; const notes=ds.map((d,k)=>({m:ms[k%ms.length],d,bar:k===ds.length-1}));
@@ -1887,6 +2005,11 @@ function keyLabel(key){
   if(type==='tempo') return 'Hearing a fast or slow beat';
   if(type==='beats') return `How long a ${DUR_NAMES[+arg]||'note'} lasts`;
   if(type==='bar') return 'Counting the beats in a bar';
+  if(type==='rest') return `How long a ${REST_NAMES[+arg]||'rest'} lasts`;
+  if(type==='tap') return 'Tapping a written rhythm';
+  if(type==='hear') return 'Hearing which rhythm was played';
+  if(type==='miss') return 'Finding the note that finishes a bar';
+  if(type==='build') return 'Building a bar';
   return key;
 }
 
@@ -2009,6 +2132,39 @@ function lessonBody(id){
       <p>How fast the beat goes is called the <strong>tempo</strong>. We count it in <strong>beats a minute</strong>. 60 beats a minute is one tick every second. 120 is twice as fast.</p>
       <div class="row"><button class="btn primary" data-act="beat-demo" data-bpm="60">Hear 60 beats a minute</button><button class="btn primary" data-act="beat-demo" data-bpm="120">Hear 120 beats a minute</button></div>
       <p><strong>Try it:</strong> tap the metronome button at the top of the screen and clap along. Then make it faster or slower with − and +.</p>`;
+    case 'tb': return `<h2>Tap the beat</h2>
+      <p>Now it's your turn to keep the beat. First you hear a <strong>count-in</strong>: one bar of clicks, “1, 2, 3, 4,” so you know how fast to go. Then you tap the big button on every beat.</p>
+      <p>Keep your taps steady and even, like a clock. Counting out loud helps: “1, 2, 3, 4, 1, 2, 3, 4.”</p>
+      <div class="score">${rhythmScore(4,'1-1-1-1-1-1-1-1',Math.min(w,560))}</div>
+      <div class="row"><button class="btn primary" data-act="hear-rhythm" data-r="4:1-1-1-1-1-1-1-1">▶ Hear it</button></div>
+      <p>The app shows which taps were right on time, a little early, or a little late. If the microphone is on, you can play the rhythm on your flute instead of tapping.</p>
+      <p><strong>Try it:</strong> tap Warm up first below. It doesn't count.</p>`;
+    case 'rs': return `<h2>Rests: quiet beats</h2>
+      <p>Music has quiet moments too. A <strong>rest</strong> means: don't play, but keep counting. The beat keeps going even when you're silent.</p>
+      <div class="durs">${[['𝄽','Quarter rest','1 beat'],['𝄼','Half rest','2 beats'],['𝄻','Whole rest','4 beats']].map(([g,n,b])=>`<div class="dur"><span class="g">${g}</span><strong>${n}</strong><span class="b">${b}</span></div>`).join('')}</div>
+      <p>A <strong>half rest</strong> sits on top of the middle line like a <strong>hat</strong>. A <strong>whole rest</strong> hangs down from the line like a <strong>hole</strong>.</p>
+      <p>Listen to this rhythm. Say “rest” quietly in your head on the rests.</p>
+      <div class="score">${rhythmScore(4,'1-1-1-r1-1-1-1-r1',Math.min(w,560))}</div>
+      <div class="row"><button class="btn primary" data-act="hear-rhythm" data-r="4:1-1-1-r1-1-1-1-r1">▶ Hear it</button></div>`;
+    case 'bb': return `<h2>Build a bar</h2>
+      <p>Every bar holds exactly the number of beats in the time signature. In 4, the notes and rests in each bar add up to 4. In 3, they add up to 3.</p>
+      <p>Lots of different notes can fill the same bar. Each of these bars adds up to 4:</p>
+      <div class="score">${rhythmScore(4,'4-2-2-2-1-1-1-1-1-1',Math.min(w,600))}</div>
+      <p class="hint">4 = 4 · 2 + 2 = 4 · 2 + 1 + 1 = 4 · 1 + 1 + 1 + 1 = 4</p>
+      <p>In the quiz you'll build your own bars, and find the note that fills a gap. Add up the beats as you go.</p>`;
+    case 'rh': return `<h2>Reading rhythms</h2>
+      <p>A <strong>rhythm</strong> is the pattern of long and short sounds in music. Musicians often say rhythms out loud with sounds like these:</p>
+      <div class="durs">${[['♩','ta','1 beat','4:1-1-1-1'],['♪♪','ti-ti','2 eighth notes, 1 beat together','4:0.5-0.5-0.5-0.5-0.5-0.5-0.5-0.5'],['𝅗𝅥','ta-a','2 beats','4:2-2']].map(([g,n,b,r])=>`<button class="dur" data-act="hear-rhythm" data-r="${r}"><span class="g">${g}</span><strong>“${n}”</strong><span class="b">${b}</span></button>`).join('')}</div>
+      <p class="hint">Tap a card to hear it. In many books, two eighth notes are joined by a line called a beam. This app draws each one with its own flag, but they sound the same.</p>
+      <p><strong>Try it:</strong> say this rhythm out loud, “ta ta ti-ti ta, ta-a ta-a,” then listen to check.</p>
+      <div class="score">${rhythmScore(4,'1-1-0.5-0.5-1-2-2',Math.min(w,560))}</div>
+      <div class="row"><button class="btn primary" data-act="hear-rhythm" data-r="4:1-1-0.5-0.5-1-2-2">▶ Hear it</button></div>`;
+    case 'lsr': return `<h2>Long-short rhythms</h2>
+      <p>A dot makes a note half again as long. A <strong>dotted quarter note</strong> lasts 1½ beats. It is usually followed by an <strong>eighth note</strong> (½ beat), so together they fill 2 beats.</p>
+      <p>It sounds long-short, like “taaa-ti.” Count “1, and 2, and”: the eighth note comes on the “and” of 2.</p>
+      <div class="score">${rhythmScore(4,'1.5-0.5-2-1.5-0.5-2',Math.min(w,560))}</div>
+      <div class="row"><button class="btn primary" data-act="hear-rhythm" data-r="4:1.5-0.5-2-1.5-0.5-2" data-bpm="60">▶ Hear it</button><button class="btn" data-act="open-song" data-id="auld">Play “Auld Lang Syne”</button></div>
+      <p>“Auld Lang Syne” in your song book is full of long-short pairs.</p>`;
     case 'l7': return `<h2>Moving a song to fit</h2>
       <p>Most songs were written for other instruments, so some use notes your flute doesn't have. If you move every note up or down by the same amount, the song still sounds like itself. Musicians call this <strong>transposing</strong>.</p>
       <p>The Make page tries every possible move and picks the one where the most notes land on your flute.</p>
@@ -2037,6 +2193,7 @@ function renderLearn(){
       <h3>Practice</h3>
       ${weak.length?`<button class="lbtn" data-act="review" aria-current="${!!(S.quiz&&S.quiz.review&&S.pane==='lesson'&&!S.game)}"><span class="num">↻</span><span class="lt">Practice my mistakes<small class="hint">${weak.length} to fix</small></span></button>`:''}
       ${GAMES.map(g=>`<button class="lbtn" data-act="game" data-id="${g.id}" aria-current="${S.game&&S.game.id===g.id}"><span class="num">${P.games[g.id]!=null?P.games[g.id]:'★'}</span><span class="lt">${g.title}</span></button>`).join('')}
+      <button class="lbtn" data-act="tapper" aria-current="${!!(S.quiz&&S.quiz.mode==='tapper'&&S.pane==='lesson'&&!S.game)}"><span class="num">${P.games.tapper!=null?P.games.tapper:'★'}</span><span class="lt">Rhythm Tapper</span></button>
       <h3>Grown-ups</h3>
       <button class="lbtn" data-act="grownups" aria-current="${!S.game&&S.pane==='grownups'}"><span class="num">i</span><span class="lt">Progress and records</span></button>
     </nav>
@@ -2050,7 +2207,7 @@ function renderLessonPane(){
   stopFollow();
   if(S.game){ renderGame(); return; }
   if(S.pane==='grownups'){ renderGrownups(el); return; }
-  if(S.quiz && (S.quiz.review || S.quiz.lesson===S.lesson)){ renderQuiz(el); return; }
+  if(S.quiz && (S.quiz.free || S.quiz.lesson===S.lesson)){ renderQuiz(el); return; }
   const id=S.lesson, k=LESSONS.findIndex(l=>l.id===id), L=LESSONS[k];
   if(!lessonOpen(k)){
     el.innerHTML=`<h2>${LOCK_ICON.replace('<svg','<svg class="biglock"')} ${esc(L.title)}</h2>
@@ -2062,8 +2219,9 @@ function renderLessonPane(){
   el.innerHTML=`<p class="hint">Unit ${UNITS.findIndex(u=>u.id===L.unit)+1}: ${esc(L.unitTitle)} · Lesson ${k+1} of ${LESSONS.length}</p>`+lessonBody(id)+`
     <div class="panel stack quizcall" style="gap:10px">
       <h3>Quiz time</h3>
-      <p>Answer 5 questions about this lesson. Get 4 right to open the next lesson.${stars?' Your best: '+starsHTML(stars):''}</p>
+      <p>Answer 5 questions about this lesson. Get 4 right to open the next lesson.${L.warm?' A warm-up lets you practice first; it doesn\'t count.':''}${stars?' Your best: '+starsHTML(stars):''}</p>
       <div class="row">
+        ${L.warm?`<button class="btn" data-act="warmup">Warm up first</button>`:''}
         <button class="btn primary" data-act="quiz-start">${stars?'Take the quiz again':'Take the quiz'}</button>
         ${next && lessonOpen(k+1)?`<button class="btn" data-act="lesson" data-id="${next.id}">Next lesson ›</button>`:''}
       </div>
@@ -2072,18 +2230,19 @@ function renderLessonPane(){
   const ex=$('#exScore'); if(ex) ex.innerHTML=renderScore(exNotes(id),[4,4],scoreWidth(ex));
 }
 // ---- Quiz ----
-function startQuiz(lessonId,keys,review){
+// mode: undefined for a lesson quiz, 'review' (Practice my mistakes), 'tapper' (Rhythm Tapper game) or 'warmup' (not graded or saved)
+function startQuiz(lessonId,keys,mode){
   stopRun(true);
   const w=Math.min(420,($('#lessonPane')?.clientWidth||460)-40);
   const qs=keys.map(k=>makeQ(k,w)).filter(Boolean);
   if(!qs.length) return;
-  S.quiz={lesson:lessonId,review:!!review,qs,k:0,res:[],picked:null,state:'ask',t0:Date.now(),done:false};
+  S.quiz={lesson:lessonId,mode,review:mode==='review',free:mode==='review'||mode==='tapper',qs,k:0,res:[],picked:null,state:'ask',t0:Date.now(),done:false};
   S.pane='lesson';
   renderLearn();
   playQ();
 }
-function playQ(){ const z=S.quiz; const q=z&&!z.done&&z.qs[z.k]; if(q&&q.play) setTimeout(()=>{ if(S.quiz===z) q.play(); },250); }
-function quizTitle(z){ return z.review?'Practice my mistakes':'Quiz: '+(LESSONS.find(l=>l.id===z.lesson)||{}).title; }
+function playQ(){ const z=S.quiz; const q=z&&!z.done&&z.qs[z.k]; if(q&&q.play&&!q.tap&&!q.build) setTimeout(()=>{ if(S.quiz===z&&z.qs[z.k]===q) q.play(); },250); }
+function quizTitle(z){ const L=(LESSONS.find(l=>l.id===z.lesson)||{}).title; return z.review?'Practice my mistakes':z.mode==='tapper'?'Rhythm Tapper':z.mode==='warmup'?'Warm-up: '+L:'Quiz: '+L; }
 function renderQuiz(el){
   const z=S.quiz, n=z.qs.length;
   const dots=`<div class="qdots" aria-hidden="true">${z.qs.map((_,i)=>`<i class="${i<z.res.length?(z.res[i]?'r':'w'):i===z.k&&!z.done?'c':''}"></i>`).join('')}</div>`;
@@ -2093,26 +2252,32 @@ function renderQuiz(el){
     const k=LESSONS.findIndex(l=>l.id===z.lesson), next=LESSONS[k+1];
     const passed=pct>=0.8;
     const fixed=z.review?z.qs.filter(q=>{ const it=S.progress.items[q.key]; return it&&it.s>=2; }).length:0, left=z.review?n-fixed:0;
-    const msg= z.review ? (left===0?'All fixed! They won\'t come back unless you miss them again.'
+    const msg= z.mode==='warmup' ? 'Warm-up done. Ready for the quiz?'
+      : z.mode==='tapper' ? (score===n?'Every rhythm right! You\'re a rhythm star.':score>=6?'Great tapping!':'Keep practicing. Try Warm up in the rhythm lessons.')
+      : z.review ? (left===0?'All fixed! They won\'t come back unless you miss them again.'
         : (fixed?`You fixed ${fixed}. `:'')+`A mistake is fixed when you get it right twice in a row, so ${left===1?'1 question':left+' questions'} will come back for one more try.`)
       : stars===3 ? 'Perfect! Every answer right.' : passed ? 'You passed!'+(next?' The next lesson is open.':'') : 'Almost there. Read the lesson again, then try the quiz. You need 4 right to pass.';
     const missed=z.qs.filter((q,i)=>!z.res[i]);
     el.innerHTML=head+`<div class="quizend">
-        ${z.review?'':starsHTML(stars,true)}
+        ${z.mode?'':starsHTML(stars,true)}
         <h2 style="font-size:40px">${score} out of ${n}</h2>
         <p>${msg}${z.newBest?' <strong>New best!</strong>':''}</p>
       </div>
-      ${missed.length?`<div class="stack" style="gap:6px"><h3>To practice</h3><ul class="missed">${missed.map(q=>`<li>${esc(q.explain)}</li>`).join('')}</ul></div>`:''}
+      ${missed.length&&!z.mode?`<div class="stack" style="gap:6px"><h3>To practice</h3><ul class="missed">${missed.filter(q=>q.explain&&!q.tap&&!q.build&&!q.rhythms).map(q=>`<li>${esc(q.explain)}</li>`).join('')}${missed.some(q=>q.tap)?'<li>Tapping rhythms: use Warm up first, and count out loud.</li>':''}${missed.some(q=>q.build)?'<li>Building bars: add up the beats before you tap Check.</li>':''}${missed.some(q=>q.rhythms)?'<li>Hearing rhythms: say "ta" and "ti-ti" along with the sound.</li>':''}</ul></div>`:''}
       <div class="row">
-        ${!z.review && passed && next ? `<button class="btn primary" data-act="lesson" data-id="${next.id}">Next lesson ›</button>`:''}
-        ${z.review ? (weakKeys().length?`<button class="btn primary" data-act="review">Practice more mistakes</button>`:'') : `<button class="btn ${passed&&next?'':'primary'}" data-act="quiz-start">Try again</button>`}
-        ${z.review ? `<button class="btn" data-act="quiz-close">Back to lessons</button>` : `<button class="btn" data-act="quiz-close">Back to the lesson</button>`}
+        ${z.mode==='warmup' ? `<button class="btn primary" data-act="quiz-start">Take the quiz</button><button class="btn" data-act="warmup">Warm up again</button>`
+        : z.mode==='tapper' ? `<button class="btn primary" data-act="tapper">Play again</button>`
+        : z.review ? (weakKeys().length?`<button class="btn primary" data-act="review">Practice more mistakes</button>`:'')
+        : (passed && next ? `<button class="btn primary" data-act="lesson" data-id="${next.id}">Next lesson ›</button>`:'')+`<button class="btn ${passed&&next?'':'primary'}" data-act="quiz-start">Try again</button>`}
+        <button class="btn" data-act="quiz-close">${z.free?'Back to lessons':'Back to the lesson'}</button>
       </div>`;
     return;
   }
   const q=z.qs[z.k], answered=z.state!=='ask';
+  if(q.tap){ renderTapQ(el,head,z,q); return; }
+  if(q.build){ renderBuildQ(el,head,z,q); return; }
   const choiceCls=c=> answered ? (c.v===q.answer?'right':c.v===z.picked?'wrong':'') : '';
-  const choices=`<div class="answers ${q.flutes?'flutes':''}">${q.choices.map((c,i)=>`<button class="ans ${q.text?'text':''} ${q.flutes?'flute':''} ${choiceCls(c)}" data-act="q-answer" data-i="${i}" ${answered?'disabled':''} ${q.flutes?`aria-label="Choice ${i+1}"`:''}>${c.html}</button>`).join('')}</div>`;
+  const choices=`<div class="answers ${q.flutes?'flutes':''}">${q.choices.map((c,i)=>`<button class="ans ${q.text?'text':''} ${q.flutes?'flute':''} ${q.rhythms?'rhythm':''} ${choiceCls(c)}" data-act="q-answer" data-i="${i}" ${answered?'disabled':''} ${q.flutes?`aria-label="Choice ${i+1}"`:''}>${c.html}</button>`).join('')}</div>`;
   const right=answered && z.picked===q.answer;
   el.innerHTML=head+`<p class="hint">Question ${z.k+1} of ${n}</p>
     ${q.visual?`<div class="score">${q.visual}</div>`:''}
@@ -2126,7 +2291,7 @@ function answerQ(i){
   const z=S.quiz; if(!z||z.state!=='ask') return;
   const q=z.qs[z.k], c=q.choices[i]; if(!c) return;
   z.picked=c.v; z.state='answered';
-  const right=c.v===q.answer; z.res.push(right); noteItem(q.key,right);
+  const right=c.v===q.answer; z.res.push(right); if(z.mode!=='warmup') noteItem(q.key,right);
   if(q.notes||q.flutes) playNow(+q.answer,0.7);
   Store.saveProgress();
   renderQuiz($('#lessonPane'));
@@ -2134,13 +2299,19 @@ function answerQ(i){
 }
 function nextQ(){
   const z=S.quiz; if(!z) return;
-  z.k++; z.state='ask'; z.picked=null;
+  z.k++; z.state='ask'; z.picked=null; z.tapS=null; z.build=[];
   if(z.k>=z.qs.length) finishQuiz(); else { renderQuiz($('#lessonPane')); playQ(); }
 }
 function finishQuiz(){
   const z=S.quiz; z.done=true;
   const score=z.res.filter(Boolean).length, n=z.qs.length, pct=score/n, stars=pct>=1?3:pct>=0.8?2:pct>=0.6?1:0;
   const P=S.progress;
+  if(z.mode==='warmup'){ renderLearn(); return; }
+  if(z.mode==='tapper'){
+    if(P.games.tapper==null || score>P.games.tapper) P.games.tapper=score;
+    logActivity({kind:'game',id:'tapper',title:'Rhythm Tapper',score,total:n,ms:Date.now()-z.t0,missed:z.qs.filter((q,i)=>!z.res[i]).map(q=>q.key)});
+    renderLearn(); return;
+  }
   if(!z.review){
     if(stars>(P.stars[z.lesson]||0)){ if(P.stars[z.lesson]) z.newBest=true; P.stars[z.lesson]=stars; }
     if(pct>=0.8) P.lessons[z.lesson]=true;
@@ -2148,6 +2319,98 @@ function finishQuiz(){
   logActivity({kind:z.review?'review':'quiz',id:z.lesson||'review',title:quizTitle(z).replace(/^Quiz: /,''),score,total:n,stars:z.review?undefined:stars,ms:Date.now()-z.t0,missed:z.qs.filter((q,i)=>!z.res[i]).map(q=>q.key)});
   renderLearn();
 }
+// ---- Tapping a rhythm ----
+function renderTapQ(el,head,z,q){
+  if(z.tapS && z.tapS.phase!=='done' && !RUN) z.tapS=null;   // the run was stopped (page change): start over
+  const t=z.tapS, live=t&&(t.phase==='count'||t.phase==='go'), done=t&&t.phase==='done';
+  const r=done?t.r:null;
+  el.innerHTML=head+`<p class="hint">Question ${z.k+1} of ${z.qs.length} · ${q.tap.bpm} beats a minute</p>
+    <div class="score" id="qScore">${q.visual}</div>
+    <p class="qprompt">${esc(q.prompt)}</p>
+    <div class="row">
+      <button class="btn" data-act="q-play" ${live?'disabled':''}>▶ Hear it</button>
+      ${done?'':`<button class="btn ${live?'':'primary'}" data-act="tap-start" ${live?'disabled':''}>Start</button>`}
+    </div>
+    <button class="tappad" id="tapPad" ${live?'':'disabled'} aria-label="Tap">${live?(t.phase==='count'?'Get ready…':'Tap'):'Tap'}</button>
+    ${Mic.on&&!done?`<p class="hint">${MIC_ICON} Or play the rhythm on your flute on any note. The mic is listening. Start each note with your tongue.</p>`:''}
+    <p class="feedback ${done?(r.right?'right':'wrong'):''}" aria-live="polite">${done?esc(tapSummary(r)):''}</p>
+    ${done?`<div class="row"><button class="btn primary" data-act="q-next">${z.k+1<z.qs.length?'Next question ›':'See my score'}</button></div>`:''}`;
+  if(done){ const sc=$('#qScore'); t.idx.forEach((ni,k)=>{ const g=sc.querySelector(`.nt[data-i="${ni}"]`); if(!g) return; const v=r.res[k]; g.classList.add(v==='ok'?'ok':v==='miss'?'miss':'retry'); const tx=g.querySelector('.tm'); if(tx) tx.textContent=v==='early'?'early':v==='late'?'late':v==='miss'?'missed':''; }); }
+  const pad=$('#tapPad'); if(pad) pad.addEventListener('pointerdown',e=>{ e.preventDefault(); tapHit(); });
+}
+function tapSummary(r){
+  const n=r.res.length;
+  if(r.right) return r.ok===n?`Perfect rhythm! All ${n} notes on time.`:`Good rhythm! ${r.ok} of ${n} notes on time.`;
+  const parts=[`${r.ok} of ${n} on time`];
+  if(r.early) parts.push(`${r.early} early`);
+  if(r.late) parts.push(`${r.late} late`);
+  if(r.miss) parts.push(`${r.miss} missed`);
+  return parts.join(', ')+'.'+(r.extra>1?` ${r.extra} extra taps.`:'')+' Tap Hear it to listen, then count along.';
+}
+function tapStart(){
+  const z=S.quiz, q=z&&z.qs[z.k]; if(!q||!q.tap||z.state!=='ask') return;
+  if(!audio()){ toast('This browser cannot play sound.'); return; }
+  const {beats,bpm}=q.tap, spb=60/bpm, notes=q.notes0, ev=[], rel=[], idx=[];
+  for(let k=0;k<beats;k++) ev.push({t:k*spb,click:true,accent:k===0,vol:0.3,mark:true,count:k+1});
+  let pos=0;
+  notes.forEach((n,i)=>{ const t=(beats+pos)*spb; if(n.m!=null){ rel.push(t); idx.push(i); } ev.push({t,mark:true,i,dur:0}); pos+=n.d; });
+  for(let b=0;b<Math.ceil(pos-1e-6);b++) ev.push({t:(beats+b)*spb,click:true,accent:b%beats===0,vol:0.12});
+  ev.push({t:(beats+pos)*spb+0.4,mark:true,end:true,dur:0});
+  z.tapS={phase:'count',taps:[],idx,spb};
+  const t0=runEvents(ev,{
+    onMark:mk=>{
+      if(mk.count){ $('#countin').hidden=false; $('#countinNum').textContent=mk.count; return; }
+      $('#countin').hidden=true;
+      if(z.tapS && z.tapS.phase==='count'){ z.tapS.phase='go'; const p=$('#tapPad'); if(p) p.textContent='Tap'; }
+      if(mk.i!=null){ const sc=$('#qScore'); if(sc){ sc.querySelectorAll('.nt.on').forEach(g=>g.classList.remove('on')); sc.querySelector(`.nt[data-i="${mk.i}"]`)?.classList.add('on'); } }
+    },
+    onEnd:stopped=>{ if(stopped||S.quiz!==z||!z.tapS) return; tapGrade(); },
+  });
+  // the clicks are heard a little after they are scheduled
+  z.tapS.expected=rel.map(x=>x+t0+(AC.outputLatency||AC.baseLatency||0));
+  renderQuiz($('#lessonPane'));
+  const p=$('#tapPad'); if(p){ p.textContent='Get ready…'; p.focus(); }
+}
+function tapHit(t){
+  const z=S.quiz, s=z&&z.tapS; if(!s||(s.phase!=='count'&&s.phase!=='go')) return;
+  s.taps.push(t!=null?t:AC.currentTime);
+  const p=$('#tapPad'); if(p){ p.classList.remove('hit'); void p.offsetWidth; p.classList.add('hit'); }
+}
+function tapGrade(){
+  const z=S.quiz, s=z.tapS, q=z.qs[z.k];
+  const r=gradeTaps(s.expected,s.taps,s.spb);
+  s.phase='done'; s.r=r;
+  z.state='answered'; z.picked=r.right?'right':'wrong'; z.res.push(r.right);
+  if(z.mode!=='warmup') noteItem(q.key,r.right);
+  Store.saveProgress();
+  renderQuiz($('#lessonPane'));
+  $('[data-act="q-next"]')?.focus();
+}
+// ---- Building a bar ----
+function renderBuildQ(el,head,z,q){
+  const beats=q.build, items=z.build||(z.build=[]), sum=items.reduce((a,x)=>a+(+x.replace('r','')),0), answered=z.state!=='ask';
+  const fmt=v=>v===0.5?'½':String(v).replace('.5','½');
+  const meter=`<div class="bcount ${sum===beats?'full':sum>beats?'over':''}">${fmt(sum)} of ${beats} beats</div>`;
+  el.innerHTML=head+`<p class="hint">Question ${z.k+1} of ${z.qs.length}</p>
+    <p class="qprompt">${esc(q.prompt)}</p>
+    <div class="score" id="qScore">${items.length?rhythmScore(beats,items.join('-'),Math.min(520,el.clientWidth-40)):`<p class="hint" style="padding:30px 0">Your bar is empty. Tap a note or rest below.</p>`}</div>
+    ${meter}
+    ${answered?'':`<div class="lens" role="group" aria-label="Notes and rests">${BUILD_PARTS.map(([v,g,nm,b])=>`<button class="len bpart" data-act="b-add" data-v="${v}"><span class="g">${g}</span>${nm} <small>${b}</small></button>`).join('')}</div>
+    <div class="row"><button class="btn" data-act="b-undo" ${items.length?'':'disabled'}>Undo</button><button class="btn" data-act="q-play" ${items.length?'':'disabled'}>▶ Hear it</button><button class="btn primary" data-act="b-check" ${items.length?'':'disabled'}>Check</button></div>`}
+    <p class="feedback ${answered?(z.picked==='right'?'right':'wrong'):''}" aria-live="polite">${answered?esc(z.buildMsg):''}</p>
+    ${answered?`<div class="row"><button class="btn" data-act="q-play">▶ Hear it</button><button class="btn primary" data-act="q-next">${z.k+1<z.qs.length?'Next question ›':'See my score'}</button></div>`:''}`;
+}
+function buildCheck(){
+  const z=S.quiz, q=z&&z.qs[z.k]; if(!q||!q.build||z.state!=='ask') return;
+  const sum=z.build.reduce((a,x)=>a+(+x.replace('r','')),0), right=Math.abs(sum-q.build)<1e-9;
+  const parts=z.build.map(x=>{ const v=+x.replace('r',''); return v===0.5?'½':String(v).replace('.5','½'); }).join(' + ');
+  z.buildMsg= right ? `Yes! ${parts} = ${q.build} beats.` : `${parts} = ${String(sum).replace('.5','½')} beats, but the bar needs ${q.build}. ${sum>q.build?'That is too many.':'That is not enough.'}`;
+  z.state='answered'; z.picked=right?'right':'wrong'; z.res.push(right);
+  if(z.mode!=='warmup') noteItem(q.key,right);
+  Store.saveProgress();
+  renderQuiz($('#lessonPane'));
+}
+
 // ---- Grown-ups page ----
 function fmtDate(t){ return new Date(t).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}); }
 function fmtTime(t){ return new Date(t).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}); }
@@ -2420,7 +2683,7 @@ function onMicFrame(fr,ev){
   for(const e of ev){
     if(FS) FS.core.feed(e);
     if(REC) recFeed(e);
-    if(e.type==='on') Activity.touch();
+    if(e.type==='on'){ Activity.touch(); if(S.quiz&&S.quiz.tapS) tapHit(e.start/1000); }
     if(e.type==='on' && S.view==='flute' && BY_MIDI.has(e.m)){
       S.explore={holes:BY_MIDI.get(e.m).holes.slice(),m:e.m}; S.big={holes:S.explore.holes.slice(),m:e.m,interactive:true}; drawBig();
       document.querySelectorAll('.ncard').forEach(c=>c.setAttribute('aria-pressed',+c.dataset.m===e.m));
@@ -2808,13 +3071,20 @@ document.addEventListener('click',e=>{
     case 'c-undo': S.compose.notes.pop(); composeToMake(); renderMakePanel(); break;
     case 'c-clear': S.compose.notes=[]; composeToMake(); renderMakePanel(); break;
     case 'go-write': S.make.tab='write'; go('make'); composeToMake(); break;
-    case 'lesson': S.game=null; S.pane='lesson'; if(S.quiz && (S.quiz.done || S.quiz.lesson!==a.dataset.id || S.quiz.review)) S.quiz=null; S.lesson=a.dataset.id; S.big={...S.big,interactive:false,hideName:false}; drawBig(); renderLearn(); break;
+    case 'lesson': S.game=null; S.pane='lesson'; if(S.quiz && (S.quiz.done || S.quiz.lesson!==a.dataset.id || S.quiz.free)) S.quiz=null; S.lesson=a.dataset.id; S.big={...S.big,interactive:false,hideName:false}; drawBig(); renderLearn(); break;
     case 'quiz-start': { const L=LESSONS.find(l=>l.id===S.lesson); if(L) startQuiz(L.id,quizKeys(L.quiz)); break; }
     case 'q-answer': answerQ(+a.dataset.i); break;
     case 'q-next': nextQ(); break;
+    case 'tap-start': tapStart(); break;
+    case 'b-add': { const z=S.quiz; if(z&&z.state==='ask'&&z.build.length<16){ z.build.push(a.dataset.v); renderQuiz($('#lessonPane')); } break; }
+    case 'b-undo': { const z=S.quiz; if(z&&z.state==='ask'){ z.build.pop(); renderQuiz($('#lessonPane')); } break; }
+    case 'b-check': buildCheck(); break;
+    case 'warmup': { const L=LESSONS.find(l=>l.id===S.lesson); if(L&&L.warm) startQuiz(L.id,L.warm,'warmup'); break; }
+    case 'tapper': S.game=null; startQuiz(null,TAPPER_KEYS,'tapper'); break;
+    case 'hear-rhythm': { const [b,str]=[a.dataset.r.slice(0,a.dataset.r.indexOf(':')),a.dataset.r.slice(a.dataset.r.indexOf(':')+1)]; playRhythm(+b,str,+a.dataset.bpm||72); break; }
     case 'q-play': { const z=S.quiz, q=z&&z.qs[z.k]; if(q&&q.play) q.play(); break; }
     case 'quiz-close': S.quiz=null; renderLearn(); $('#lessonPane')?.scrollIntoView({block:'start'}); break;
-    case 'review': S.game=null; startQuiz(null,weakKeys().slice(0,5),true); break;
+    case 'review': S.game=null; startQuiz(null,weakKeys().slice(0,5),'review'); break;
     case 'grownups': S.game=null; S.quiz=null; S.pane='grownups'; renderLearn(); break;
     case 'seq': stopRun(true); playSeq(a.dataset.ms.split(',').map(Number),70); break;
     case 'beat-demo': { const bpm=+a.dataset.bpm, spb=60/bpm; runEvents(Array.from({length:8},(_,k)=>({t:k*spb,click:true,accent:k%4===0,vol:0.3}))); break; }
@@ -2853,6 +3123,7 @@ document.addEventListener('keydown',e=>{
   if(e.key==='Escape' && !$('#settings').hidden){ $('#settings').hidden=true; return; }
   if(e.key==='Escape' && !$('#micHelp').hidden){ $('#micHelp').hidden=true; return; }
   const t=e.target;
+  if(t && t.id==='tapPad' && (e.key===' '||e.key==='Enter')){ e.preventDefault(); if(!e.repeat) tapHit(); return; }
   if((e.key==='Enter'||e.key===' ') && t.getAttribute && t.getAttribute('data-act')==='hole'){ e.preventDefault(); t.dispatchEvent(new MouseEvent('click',{bubbles:true})); return; }
   if(S.view==='songs' && S.player.mode==='step' && !/INPUT|TEXTAREA|SELECT/.test(t.tagName)){
     if(e.key==='ArrowRight'){ e.preventDefault(); $('[data-act="next"]')?.click(); }

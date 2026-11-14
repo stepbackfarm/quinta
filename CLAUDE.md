@@ -10,7 +10,8 @@ The user is David, a parent building this for his son. The son is the end user, 
 - `icon.png`: the 180×180 Home Screen icon.
 - `tests/timing.test.js`: Node tests for the Follow me timing grade.
 - `tests/record.test.js`: Node tests for turning a recording into notes.
-- `tests/course.e2e.js`: Playwright test of the Learn course (needs a local server; see the file's header).
+- `tests/rhythm.test.js`: Node tests for rhythm tapping grades, and a check that every tap rhythm fills whole bars.
+- `tests/course.e2e.js`, `tests/rhythm.e2e.js`: Playwright tests of the Learn course and the rhythm lessons (need a local server; see each file's header).
 - `CLAUDE.md`: this file.
 
 Keep it a single self-contained file unless there's a strong reason to split it. It runs in two places and has to work in both (see below).
@@ -73,6 +74,7 @@ The Claude-hosted copy is republished from a claude.ai chat. After changing `ind
     - `makeFollow`: the "Follow me" logic. It records each note's onset time in `st.onsets`.
     - `beatStarts`, `timingTol`, `judgeGap`, `followTiming`: the optional Follow me timing grade.
     - `scoreTimed`: the "Play in time" scoring.
+  - Rhythm (pure parts): `rhythmItems` (strings like `1-1-r1-0.5-0.5`, `r` = rest), `parseTapArg` (`4:1-1-2@72` = beats in a bar, rhythm, speed), `gradeTaps`.
   - Recording (pure parts): `estimateBeat`, `splitLen`, `barify`, `transcribe`. `NoteTracker`'s `on` events carry `start`, the time the pitch first appeared.
 - **Song book**:
   - `BOOK`: warm-ups, original tunes and traditional songs, all exactly on the flute.
@@ -98,8 +100,12 @@ The Claude-hosted copy is republished from a claude.ai chat. After changing `ind
 - **Views**: Flute (chart), Songs (list and player), Make (photo, typed ABC, write your own, record, then the fit and transpose result with Save, Listen and Practice), Learn (the course, practice games and the grown-ups page).
 - **Course** (Learn tab). David's son is 10 and is starting from zero, so lessons are short, in plain words, and build in order. David and his wife aren't musicians: every lesson ends with a "For grown-ups" note.
   - `UNITS` holds units of lessons. Each lesson has `id`, `title`, `quiz` (a spec such as `[['mc',3,[ids]],['ls',2]]`) and `grown` (the grown-ups note). `LESSONS` is the flat list. Lesson text lives in `lessonBody(id)`. Lesson ids `l1`–`l7` are the original lessons, so old progress still counts.
-  - Order: Unit 1 Meet your flute (l1, hl, l6), Unit 2 Reading notes (l3, ls, fm), Unit 3 Beat and rhythm (bt, l4, l5), Unit 4 The sound of the Quinta (l2), Unit 5 Beyond your flute (l7).
-  - Questions: `quizKeys(spec)` picks 5 question keys; `makeQ(key)` builds a question from a key. Key types: `mc:<id>` (facts in `MCQ`; the first choice is the right one), `hilo:a-b` (up or down), `tempo:bpm` (fast or slow), `ls:m` (line or space), `name:m` (read the note), `fing:m` / `fingx:m` (pick the flute, with or without the letter), `ear:m`, `beats:d`, `bar:1-1-2` (count a bar). Because a key names one exact question, a missed question can be asked again later. `keyLabel(key)` gives the plain-words name used on the grown-ups page.
+  - Order: Unit 1 Meet your flute (l1, hl, l6), Unit 2 Reading notes (l3, ls, fm), Unit 3 Beat and rhythm (bt, tb Tap the beat, l4, rs Rests, l5, bb Build a bar, rh Reading rhythms, lsr Long-short rhythms), Unit 4 The sound of the Quinta (l2), Unit 5 Beyond your flute (l7).
+  - A lesson with `warm` keys shows "Warm up first": an ungraded quiz that saves nothing.
+  - Questions: `quizKeys(spec)` picks 5 question keys; `makeQ(key)` builds a question from a key. Key types: `mc:<id>` (facts in `MCQ`; the first choice is the right one), `hilo:a-b` (up or down), `tempo:bpm` (fast or slow), `ls:m` (line or space), `name:m` (read the note), `fing:m` / `fingx:m` (pick the flute, with or without the letter), `ear:m`, `beats:d`, `bar:1-1-2` (count a bar), `rest:d`, `tap:4:1-1-2@72` (tap a rhythm), `hear:<set>:<k>` (which of 3 rhythms in `HEAR_SETS`), `miss:4:2-1` (which note finishes the bar, drawn with a dashed `ghost` box), `build:4` (bar builder). Because a key names one exact question, a missed question can be asked again later. `keyLabel(key)` gives the plain-words name used on the grown-ups page.
+  - Tap questions (`renderTapQ`, `tapStart`, `tapHit`, `tapGrade`): Start plays a count-in bar, then soft clicks while the notes light up. Taps come from pointerdown on the big pad, Space or Enter, or (with the mic on) each new flute note. Expected times include `AC.outputLatency`. `gradeTaps` matches each written note to the nearest tap within half the shortest gap (40 ms at most), first removes a steady lag or lead of up to 70 ms, and counts ±`max(80 ms, min(150 ms, 30% of the shortest gap))` as on time. The answer is right with no missed notes, at most 1 extra tap, and 75% on time. Results color the notes and label them early, late or missed.
+  - Bar builder (`renderBuildQ`, `buildCheck`): add notes and rests from `BUILD_PARTS`, Undo, Hear it, Check. Right when the bar adds up exactly.
+  - Quiz modes (`startQuiz(lesson, keys, mode)`): a lesson quiz, `review` (Practice my mistakes), `tapper` (the Rhythm Tapper game: `TAPPER_KEYS`, 8 rhythms from easy to hard, best saved as `games.tapper`), or `warmup`.
   - Grading: 5/5 = 3 stars, 4/5 = 2 stars and passes, 3/5 = 1 star. Passing opens the next lesson (`lessonOpen`; the grown-ups page can open all). `S.quiz` holds a running quiz; `S.pane` is `lesson` or `grownups`.
   - Mistakes: `noteItem(key,right)` keeps right, wrong and current-run counts per key. A key is a weak spot once missed, until it's answered right twice in a row (`weakKeys`). "Practice my mistakes" quizzes up to 5 of them. The games feed this too (`name:`, `fingx:`, `ear:`).
   - Records: `logActivity()` saves every quiz, review, game, Follow me, Play in time, lesson exercise and saved recording (newest 400 kept). `Activity.touch()` counts active minutes per day (any tap, or a note heard). `streak()` counts days in a row with a logged activity or at least 5 active minutes.
@@ -175,7 +181,7 @@ The Claude-hosted copy is republished from a claude.ai chat. After changing `ind
 ## Gotchas
 
 - `[hidden]{display:none!important}` is needed because `.btn` sets `display`.
-- `.app` needs `grid-template-columns:minmax(0,1fr)` and `.tabs` needs `min-width:0`, or wide content stretches the page past the phone screen.
+- `.app` and `.learn` (under 900 px) need `grid-template-columns:minmax(0,1fr)`, and `.tabs` needs `min-width:0`, or wide content stretches the page past the phone screen.
 - Inline SVG uses `style="fill:var(--x)"`, not `fill="var(--x)"`.
 - On iOS:
   - Web Audio has to start from a tap.
@@ -186,7 +192,7 @@ The Claude-hosted copy is republished from a claude.ai chat. After changing `ind
 
 ## Testing
 
-The timing, recording and course tests are checked in. These are the checks that were used; recreate the others under `tests/` when needed.
+The timing, recording, rhythm and course tests are checked in. These are the checks that were used; recreate the others under `tests/` when needed.
 
 1. **Core logic** (`node tests/core.test.js index.html`):
    - Extract the code between the CORE markers and run it in a Node `vm`.
@@ -208,8 +214,9 @@ The timing, recording and course tests are checked in. These are the checks that
    - Drive it with Playwright: open Hot Cross Buns, press Follow me or Play in time, and read `#playFb` and the `.nt` classes. For timing, tick `#followTiming` and hold one note a beat too long; the next note's `.tm` should say "late".
    - For recording, open Make, then Record, untick the metronome, press Record, let the WAV play out, press Stop, and compare `S.make.preview.notes` with the tune. Shift the WAV's pitch up and use "Another flute" to check that it's moved back.
    - WAVs come from a small numpy script; for Play in time, put 3.15 s of silence before the first note at 80 bpm.
-6. **Course** (`tests/course.e2e.js`): builds every possible quiz question, passes and fails quizzes, checks locks, Practice my mistakes and a game, the grown-ups page, reload, and phone width.
-7. **Visual check:** take one Playwright screenshot at 1180×820, and check that the page is no wider than 390 px at phone width. To render the real fonts offline, route the Google Fonts requests to local copies of the TTF files.
+6. **Rhythm** (`node tests/rhythm.test.js`, and `tests/rhythm.e2e.js` in the browser): grades for on time, steady lag, wobble, missed notes, extra taps, rests, eighths and long-short rhythms. The browser test sends real pointer taps timed against the audio clock, and checks the bar builder, the other rhythm questions, warm-up, Rhythm Tapper and phone width.
+7. **Course** (`tests/course.e2e.js`): builds every possible quiz question, passes and fails quizzes, checks locks, Practice my mistakes and a game, the grown-ups page, reload, and phone width.
+8. **Visual check:** take one Playwright screenshot at 1180×820, and check that the page is no wider than 390 px at phone width. To render the real fonts offline, route the Google Fonts requests to local copies of the TTF files.
 
 ## Open items
 
@@ -221,7 +228,7 @@ The timing, recording and course tests are checked in. These are the checks that
 - Host the standalone copy (GitHub Pages), set `STANDALONE_URL`, and republish the Claude copy.
 - The Claude copy and the standalone copy don't share saved songs (`db` vs `localStorage`). An export/import of songs as ABC text could bridge them.
 - Next steps for the course, agreed with David:
-  - Rhythm: tap a big pad along with written rhythms (graded with the Follow me timing logic), "which rhythm did you hear?", and a bar builder. Rests and dotted rhythms.
+  - Rhythm is done (Unit 3). Check the tap tolerance with the real iPad: touch and speaker delay differ by device.
   - Ear training and melody: same or different, which way the tune went, and "echo me" (the app plays 3 notes, he plays them back, checked by the mic).
   - Reading a whole song (repeat signs, ties, loud and soft marks, breath marks), song shapes (AB, ABA), question-and-answer tunes, and composing with Record and Write.
   - Export and import of records and songs, so the Claude copy and the standalone copy can share them.
